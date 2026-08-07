@@ -4,6 +4,8 @@
 
 import type {
   ColorsResponse,
+  EvalManifestEntry,
+  RunInfo,
   CostResponse,
   Experiment,
   ExperimentState,
@@ -262,7 +264,30 @@ export function seedIncludes(_experiment: string): IncludesResponse {
 }
 
 /** Synthesize a plausible curve for a given (run, metric) pair. */
+function seedEvalMetric(hash: string, name: string): MetricSeries | null {
+  const spec = taskSetForEvalHash(hash);
+  if (!spec || !name.startsWith("eval/")) return null;
+
+  // The tab dispatches on data shape, not on a declared type: every point at
+  // step 0 is a table, anything with step > 0 is a trace. So the seed has to
+  // get the STEPS right, not just the values.
+  if (spec.shape === "table") {
+    return { name, steps: [0], values: [evalScore(hash, name)] };
+  }
+  const steps: number[] = [];
+  const values: number[] = [];
+  const base = evalScore(hash, name);
+  for (let i = 0; i < 12; i++) {
+    steps.push(i * 500);
+    values.push(Number((base * (1 - Math.exp(-i / 3.5)) + Math.sin(i) * 0.01).toFixed(4)));
+  }
+  return { name, steps, values };
+}
+
 export function seedMetric(hash: string, name: string): MetricSeries {
+  const evalSeries = seedEvalMetric(hash, name);
+  if (evalSeries) return evalSeries;
+
   // Derive a stable RNG-ish offset from the hash so each run looks distinct.
   let seed = 0;
   for (let i = 0; i < hash.length; i++) seed = (seed * 31 + hash.charCodeAt(i)) >>> 0;
@@ -630,5 +655,124 @@ export function seedColors(): ColorsResponse {
       "#9C755F",
       "#BAB0AC",
     ],
+  };
+}
+
+
+// ---------------------------------------------------------------------------
+// Eval seed data
+//
+// Every other endpoint had a seed fallback; ``evals`` returned []. That meant
+// the Eval tab was the one page you could not look at with the backend down,
+// which is exactly the page hardest to reason about without seeing it.
+//
+// The dataset deliberately covers the three shapes the tab dispatches on:
+//
+//   * ``glue``    — table (all step=0), several tasks, WITH a researcher-logged
+//                   average. The common case.
+//   * ``mmlu``    — table, NO average. Absence has to render as a missing column
+//                   rather than a computed one: astrolabe never derives stats,
+//                   so a task_set whose author logged no average must not grow
+//                   one here.
+//   * ``ir-recall`` — trace (step > 0), a fine-tune trajectory, driving the
+//                   TraceBlock path instead of TableBlock.
+//
+// Eval run hashes are derived from the model run hash so ``runInfo`` and
+// ``metric`` can recognise one without a lookup table.
+
+const EVAL_TASK_SETS: Array<{
+  taskSet: string;
+  metric: string;
+  tasks: string[];
+  /** Metric name for the researcher-logged cross-task average, which the
+   *  producer writes as the task ``avg`` (the dashboard sorts that column
+   *  last). Omitted where the author logged none — astrolabe never derives
+   *  one, so absence has to survive to the UI. */
+  average?: string;
+  shape: "table" | "trace";
+}> = [
+  {
+    taskSet: "glue",
+    metric: "matthews",
+    tasks: ["cola", "sst2", "mrpc", "qnli", "rte"],
+    average: "glue_score",
+    shape: "table",
+  },
+  { taskSet: "mmlu", metric: "accuracy", tasks: ["stem", "humanities", "social_sciences"], shape: "table" },
+  { taskSet: "ir-recall", metric: "recall_at_10", tasks: ["msmarco"], shape: "trace" },
+];
+
+const EVAL_HASH_SUFFIX = "ev41";
+
+function evalHashFor(modelRunHash: string, taskSet: string): string {
+  let h = 0x811c9dc5;
+  const seed = `${modelRunHash}#${taskSet}`;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0") + EVAL_HASH_SUFFIX + "0000";
+}
+
+/** Reverse of :func:`evalHashFor` — which task_set an eval hash belongs to.
+ *  Returns null for a model run hash, which is how the metric and info seeds
+ *  tell the two apart. */
+function taskSetForEvalHash(hash: string): (typeof EVAL_TASK_SETS)[number] | null {
+  if (!hash.includes(EVAL_HASH_SUFFIX)) return null;
+  for (const spec of EVAL_TASK_SETS) {
+    for (const experiment of SPECS) {
+      for (let v = 1; v <= experiment.versions; v++) {
+        for (const runName of experiment.runNames) {
+          if (evalHashFor(hashFor(experiment.name, v, runName), spec.taskSet) === hash) {
+            return spec;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** Stable per-(run, task) score in [0.42, 0.97], so a run that looks strong on
+ *  one task looks consistently strong across re-renders.
+ *
+ *  FNV-1a rather than the usual ``h * 31``: the two eval runs in an experiment
+ *  differ only in a few characters of their hash, and the weaker mix bucketed
+ *  them to the same value — which rendered as a single overlaid trace line and
+ *  read like a charting bug. */
+function evalScore(runHash: string, task: string): number {
+  let h = 0x811c9dc5;
+  const seed = `${runHash}:${task}`;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return Number((0.42 + (h / 0x100000000) * 0.55).toFixed(4));
+}
+
+export function seedEvals(modelRunHash: string): EvalManifestEntry[] {
+  const t = now();
+  return EVAL_TASK_SETS.map((spec, i) => ({
+    aim_run_hash: evalHashFor(modelRunHash, spec.taskSet),
+    task_set: spec.taskSet,
+    creation_time: (t - (i + 1) * 3600 * 1000) / 1000,
+  }));
+}
+
+export function seedRunInfo(hash: string): RunInfo {
+  const spec = taskSetForEvalHash(hash);
+  if (!spec) return { params: {}, traces: { metric: [] } };
+  // ``eval/<task>/<metric>`` — three segments. The task_set is NOT in the
+  // metric name; it comes from the run's astrolabe.task_set tag.
+  const names = spec.tasks.map((task) => `eval/${task}/${spec.metric}`);
+  if (spec.average) names.push(`eval/avg/${spec.average}`);
+  return {
+    params: {
+      "astrolabe.kind": "eval",
+      "astrolabe.task_set": spec.taskSet,
+    },
+    traces: {
+      metric: names.map((name) => ({ name, context: {}, last_value: 0 })),
+    },
   };
 }

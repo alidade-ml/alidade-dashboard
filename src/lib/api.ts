@@ -15,6 +15,8 @@ import {
   seedExperiments,
   seedIncludes,
   seedMetric,
+  seedEvals,
+  seedRunInfo,
   seedRuns,
 } from "./seed-data";
 
@@ -108,7 +110,7 @@ export const api = {
   evals: (modelRunHash: string, signal?: AbortSignal) =>
     withSeed(
       () => getJSON<EvalManifestEntry[]>(`/runs/${encodeURIComponent(modelRunHash)}/evals`, signal),
-      () => [],
+      () => seedEvals(modelRunHash),
       signal,
     ),
   /** Run info — props + metric names. Used by the Eval tab to enumerate
@@ -117,7 +119,7 @@ export const api = {
   runInfo: (hash: string, signal?: AbortSignal) =>
     withSeed(
       () => getJSON<RunInfo>(`/runs/${encodeURIComponent(hash)}/info`, signal),
-      () => ({ params: {}, traces: { metric: [] } }),
+      () => seedRunInfo(hash),
       signal,
     ),
   colors: (signal?: AbortSignal) =>
