@@ -23,11 +23,19 @@ import (
 // callback writes; the handler also accepts the nested form but the
 // dotted form is the production layout.
 type fakeRun struct {
-	experiment   string  // Aim experiment name
+	experiment   string // Aim experiment name
 	hash         string
+	name         string  // Aim run.name; defaults to the hash when empty
 	creationTime float64 // unix seconds; 0 means missing
 	endTime      float64 // 0 means in-flight
 	tags         map[string]any
+}
+
+func (fr fakeRun) displayName() string {
+	if fr.name != "" {
+		return fr.name
+	}
+	return fr.hash
 }
 
 // fakeAim spins up an httptest.Server that mimics the three Aim REST
@@ -83,7 +91,7 @@ func fakeAim(t *testing.T, runs []fakeRun) *AimClient {
 			for _, fr := range runs {
 				out.Runs = append(out.Runs, AimRun{
 					RunID:        fr.hash,
-					Name:         fr.hash,
+					Name:         fr.displayName(),
 					CreationTime: fr.creationTime,
 					EndTime:      fr.endTime,
 				})
@@ -103,7 +111,19 @@ func fakeAim(t *testing.T, runs []fakeRun) *AimClient {
 				for _, fr := range list {
 					if fr.hash == hash {
 						w.Header().Set("Content-Type", "application/json")
-						_ = json.NewEncoder(w).Encode(RunInfo{Params: fr.tags})
+						// Props matters for runs looked up by hash from
+						// outside their own experiment — that is the only
+						// place the requester does not already know the
+						// name or the owning experiment.
+						_ = json.NewEncoder(w).Encode(RunInfo{
+							Params: fr.tags,
+							Props: RunProps{
+								Name:         fr.displayName(),
+								Experiment:   RunExperiment{ID: expIDs[fr.experiment], Name: fr.experiment},
+								CreationTime: fr.creationTime,
+								EndTime:      fr.endTime,
+							},
+						})
 						return
 					}
 				}
