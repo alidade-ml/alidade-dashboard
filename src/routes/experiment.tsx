@@ -154,6 +154,17 @@ function ExperimentBody({
 
   const isOnLatest = selectedVersion && selectedVersion === versions[versions.length - 1];
 
+  // A version IS a submit — the experiments list counts them straight
+  // from the submits table. Deriving them from runs instead undercounts
+  // whenever a submit produced no run of its own: an eval-only submit
+  // has none by definition, and a submit that failed before its first
+  // metric has none either. Both then read as "no versions" on a page
+  // the list page says has several.
+  const submitVersionCount = experiment?.version_count ?? 0;
+  const versionLabel =
+    selectedVersion?.label ?? (submitVersionCount > 0 ? `v${submitVersionCount}` : undefined);
+  const totalVersions = Math.max(versions.length, submitVersionCount);
+
   // Color palette from API (with fallback)
   const [palette, setPalette] = useState<string[]>(DEFAULT_PALETTE);
   useEffect(() => {
@@ -485,7 +496,8 @@ function ExperimentBody({
               )}
               <VersionSelector
                 versions={versions}
-                selectedLabel={selectedVersion?.label}
+                selectedLabel={versionLabel}
+                totalVersions={totalVersions}
                 pinnedLatest={isLatestPin}
                 onSelect={(label) => {
                   navigate({
@@ -533,7 +545,7 @@ function ExperimentBody({
               <span>gpu {experiment?.gpu_type ?? "—"}</span>
               <span className="opacity-50">·</span>
               <span>
-                {selectedVersion?.label ?? "—"} of {versions.length || "—"}
+                {versionLabel ?? "—"} of {totalVersions || "—"}
               </span>
               {comparison.length > 0 && (
                 <>
@@ -1177,6 +1189,9 @@ function linearSearchFallback(experimentName: string): string {
 interface VersionSelectorProps {
   versions: VersionInfo[];
   selectedLabel: string | undefined;
+  /** Submits this experiment has, which is the real version count. May
+   * exceed `versions.length` when a submit produced no runs of its own. */
+  totalVersions: number;
   pinnedLatest: boolean;
   onSelect: (label: string) => void;
 }
@@ -1184,6 +1199,7 @@ interface VersionSelectorProps {
 function VersionSelector({
   versions,
   selectedLabel,
+  totalVersions,
   pinnedLatest,
   onSelect,
 }: VersionSelectorProps) {
@@ -1205,9 +1221,19 @@ function VersionSelector({
   }, [open]);
 
   if (versions.length === 0) {
+    // Nothing to switch between — no submit here left a run to group by —
+    // but the experiment still has submits, and saying "no versions"
+    // contradicts the list page.
     return (
       <span className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-[11px] font-mono text-muted-foreground">
-        no versions
+        {totalVersions > 0 ? (
+          <>
+            <span className="text-tabular text-foreground font-medium">{selectedLabel}</span>
+            <span className="opacity-60">of {totalVersions}</span>
+          </>
+        ) : (
+          "no versions"
+        )}
       </span>
     );
   }
@@ -1229,7 +1255,7 @@ function VersionSelector({
         title="Switch version"
       >
         <span className="text-tabular text-foreground font-medium">{selectedLabel ?? "—"}</span>
-        <span className="opacity-60">of {versions.length}</span>
+        <span className="opacity-60">of {totalVersions}</span>
         {pinnedLatest && (
           <span className="rounded bg-muted px-1 py-px text-[9px] uppercase tracking-wider text-muted-foreground">
             latest
