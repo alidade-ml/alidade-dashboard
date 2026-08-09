@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ArrowLeft, ChevronDown, ExternalLink } from "lucide-react";
 
 import { api, DEFAULT_PALETTE } from "@/lib/api";
+import { isTrainingRun } from "@/lib/types";
 import type { Experiment, MetricSeries, Run } from "@/lib/types";
 import { usePolling } from "@/hooks/use-polling";
 import { formatDuration, formatRelative, formatTimestamp, isActiveState } from "@/lib/format";
@@ -375,16 +376,34 @@ function ExperimentBody({
   }, [allRuns]);
 
   // Build the chart-run specs (visible + active flag + color).
+  // Models that were never trained here — an imported checkpoint, say —
+  // have no training curve to draw, so charting them adds a legend entry
+  // with nothing behind it. They belong on the Eval tab, where comparing
+  // them against a trained model is the whole point.
+  //
+  // Keyed on kind rather than on `evaluated`: a model pulled in because
+  // this experiment evaluated it may still be a real training run from
+  // another experiment, and that one does have a curve worth overlaying.
+  const untrainedHashes = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of runsState.data ?? []) {
+      if (!isTrainingRun(r)) set.add(r.hash);
+    }
+    return set;
+  }, [runsState.data]);
+
   const chartRuns: ChartRunSpec[] = useMemo(() => {
-    return visibleRuns.map((r) => ({
-      hash: r.hash,
-      name: r.name,
-      experiment: r.experiment,
-      color: runColors[r.hash] ?? "#888",
-      active: runMeta[r.hash]?.active ?? false,
-      visible: !hiddenRuns.has(r.hash),
-    }));
-  }, [visibleRuns, runColors, runMeta, hiddenRuns]);
+    return visibleRuns
+      .filter((r) => !untrainedHashes.has(r.hash))
+      .map((r) => ({
+        hash: r.hash,
+        name: r.name,
+        experiment: r.experiment,
+        color: runColors[r.hash] ?? "#888",
+        active: runMeta[r.hash]?.active ?? false,
+        visible: !hiddenRuns.has(r.hash),
+      }));
+  }, [visibleRuns, untrainedHashes, runColors, runMeta, hiddenRuns]);
 
   // Discover available metrics across all runs (native + included)
   const metricNames = useMemo(() => {
