@@ -110,12 +110,22 @@ function ExperimentBody({
     intervalMs: RUNS_POLL_MS,
   });
 
+  // Models this experiment evaluated rather than produced. They belong to
+  // whatever experiment trained them, so they carry no version of *this*
+  // one — grouping them below would invent a "v1" that never existed.
+  // Held aside and surfaced against whichever version is selected.
+  const evaluatedModels: Run[] = useMemo(
+    () => (runsState.data ?? []).filter((r) => r.evaluated),
+    [runsState.data],
+  );
+
   // Group runs by version. One submit (= one version) typically contains
   // multiple runs (one per declared training job — e.g. BERT + LatentBERT).
   // Runs without a version field default to "v1" so legacy data still loads.
   const versions: VersionInfo[] = useMemo(() => {
     const byVersion = new Map<string, Run[]>();
     for (const run of runsState.data ?? []) {
+      if (run.evaluated) continue;
       const label = run.version || "v1";
       const list = byVersion.get(label) ?? [];
       list.push(run);
@@ -266,15 +276,20 @@ function ExperimentBody({
   // by overlaying every version on the same chart (that gets unreadable
   // fast for experiments with several runs per version).
   const allRuns = useMemo(() => {
-    const native: ComparisonRunPick[] =
-      selectedVersion?.runs.map((r) => ({
-        hash: r.hash,
-        name: r.name,
-        experiment: r.experiment,
-        submitted_by: r.submitted_by,
-      })) ?? [];
+    const pick = (r: Run): ComparisonRunPick => ({
+      hash: r.hash,
+      name: r.name,
+      experiment: r.experiment,
+      submitted_by: r.submitted_by,
+    });
+    // Evaluated models sit alongside the selected version's own runs:
+    // an eval-only submit has no runs of its own, and its page would be
+    // empty without them.
+    const native: ComparisonRunPick[] = [...(selectedVersion?.runs ?? []), ...evaluatedModels].map(
+      pick,
+    );
     return [...native, ...comparison.filter((c) => !native.find((n) => n.hash === c.hash))];
-  }, [selectedVersion, comparison]);
+  }, [selectedVersion, evaluatedModels, comparison]);
 
   // Same partitioning as `allRuns` but split — the stats table renders
   // native runs and included-from-other-experiment runs as separate
