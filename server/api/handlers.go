@@ -65,9 +65,20 @@ type RunSummary struct {
 }
 
 type RunDetail struct {
-	Hash           string        `json:"hash"`
-	Name           string        `json:"name"`
-	ExperimentName string        `json:"experiment"`
+	Hash string `json:"hash"`
+	Name string `json:"name"`
+	// Which astrolabe experiment this run actually lives in. Usually the
+	// experiment being requested, but a model evaluated by this
+	// experiment can live in another one — the row has to say so or the
+	// user cannot tell where the model came from.
+	ExperimentName string `json:"experiment"`
+	// astrolabe.kind, passed through so the client can tell a training
+	// run from an imported model. Empty means an untagged legacy run,
+	// which is treated as training.
+	Kind string `json:"kind,omitempty"`
+	// True when this row is here because the experiment evaluated the
+	// model, not because the experiment produced it.
+	Evaluated bool `json:"evaluated,omitempty"`
 	CreationTime   float64       `json:"creation_time"`
 	EndTime        float64       `json:"end_time"`
 	Active         bool          `json:"active"`
@@ -324,8 +335,26 @@ func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, experiments)
 }
 
-// HandleExperimentRuns returns detailed Aim run info for a specific experiment.
+// HandleExperimentRuns returns the runs an experiment's page should show.
 // GET /api/experiments/{name}/runs
+//
+// That is a union of two sets, not one:
+//
+//   - the models the experiment **produced** — its own training runs
+//   - the models the experiment **evaluated** — resolved through the
+//     model_run_hash on eval runs filed here, which may point at a model
+//     living in a different experiment
+//
+// The two genuinely differ. An eval-only submit produces no training run
+// at all, and a submit can evaluate its own model alongside an imported
+// one. Returning either set alone drops rows the page exists to show, so
+// rows carry Evaluated to say which way they arrived.
+//
+// Bookkeeping runs are excluded: "metadata" (engine cost runs) and
+// "eval" (the eval runs themselves, which surface on the Eval tab via
+// HandleRunEvals). Everything else is returned with its Kind so the
+// client decides what belongs in a training chart — an unrecognized kind
+// must not silently become a training run.
 func (h *Handler) HandleExperimentRuns(w http.ResponseWriter, r *http.Request) {
 	name := extractPathParam(r.URL.Path, "/api/experiments/", "/runs")
 	if name == "" {
@@ -359,8 +388,12 @@ func (h *Handler) HandleExperimentRuns(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch run info in parallel — previously this was serial per run
 	type result struct {
-		index  int
-		detail RunDetail
+		index int
+		// Set when the run belongs on the page.
+		detail *RunDetail
+		// Set when the run is an eval — the model it scores is a
+		// candidate for the evaluated half of the union.
+		evaluates string
 	}
 	results := make(chan result, len(expRuns.Runs))
 	var wg sync.WaitGroup
@@ -372,44 +405,25 @@ func (h *Handler) HandleExperimentRuns(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func(idx int, ar AimRun) {
 			defer wg.Done()
-			detail := RunDetail{
-				Hash:           ar.RunID,
-				Name:           runDisplayName(ar, name),
-				ExperimentName: name,
-				CreationTime:   ar.CreationTime,
-				EndTime:        ar.EndTime,
-				Active:         ar.EndTime == 0,
-				Duration:       formatDuration(ar.CreationTime, ar.EndTime),
-			}
+			detail := h.buildRunDetail(ar, name)
 
 			info, err := h.aim.GetRunInfo(ar.RunID)
 			if err == nil {
-				for _, m := range info.Traces.Metric {
-					if strings.HasPrefix(m.Name, "__system__") {
-						continue
-					}
-					detail.Metrics = append(detail.Metrics, MetricEntry{
-						Name:    m.Name,
-						Context: m.Context,
-					})
-				}
-				// Aim's info.traces.metric[].last_value is unreliable —
-				// observed showing the initial/default value (0.1) even
-				// when the actual series has progressed. Fetch the real
-				// series and take values[-1] for the displayed final loss.
-				if loss, err := h.aim.GetMetric(ar.RunID, "train/loss", nil); err == nil && len(loss.Values) > 0 {
-					val := loss.Values[len(loss.Values)-1]
-					detail.FinalLoss = &val
-				}
-				// Extract all astrolabe.* tags. Empty strings are fine —
-				// the frontend falls back to v1 / "unknown" for legacy
-				// runs that pre-date the tagging.
 				tags := AstrolabeTagsFromParams(info.Params)
-				detail.Version = tags.Version
-				detail.SubmitID = tags.SubmitID
-				detail.SubmittedBy = tags.SubmittedBy
+				switch tags.Kind {
+				case "eval":
+					// Not a row itself — the Eval tab renders it. Its
+					// model is a row, and may live elsewhere.
+					results <- result{index: idx, evaluates: tags.ModelRunHash}
+					return
+				case "metadata":
+					// Engine-written cost run; carries no metrics.
+					results <- result{index: idx}
+					return
+				}
+				h.enrichRunDetail(&detail, info, ar.RunID)
 			}
-			results <- result{index: idx, detail: detail}
+			results <- result{index: idx, detail: &detail}
 		}(i, ar)
 	}
 
@@ -418,19 +432,135 @@ func (h *Handler) HandleExperimentRuns(w http.ResponseWriter, r *http.Request) {
 		close(results)
 	}()
 
-	// Collect in original order
 	detailsByIndex := make(map[int]RunDetail)
+	evaluated := make(map[string]bool)
 	for r := range results {
-		detailsByIndex[r.index] = r.detail
+		if r.detail != nil {
+			detailsByIndex[r.index] = *r.detail
+		}
+		if r.evaluates != "" {
+			evaluated[r.evaluates] = true
+		}
 	}
 	details := make([]RunDetail, 0, len(detailsByIndex))
+	produced := make(map[string]bool, len(detailsByIndex))
 	for i := 0; i < len(expRuns.Runs); i++ {
 		if d, ok := detailsByIndex[i]; ok {
 			details = append(details, d)
+			produced[d.Hash] = true
 		}
 	}
 
+	// The evaluated half. Models the experiment produced itself are
+	// already present — evaluating your own model must not double it.
+	details = append(details, h.evaluatedModelDetails(evaluated, produced)...)
+
 	writeJSON(w, details)
+}
+
+// buildRunDetail fills the fields available from a run listing, before
+// the per-run info fetch.
+func (h *Handler) buildRunDetail(ar AimRun, experimentName string) RunDetail {
+	return RunDetail{
+		Hash:           ar.RunID,
+		Name:           runDisplayName(ar, experimentName),
+		ExperimentName: experimentName,
+		CreationTime:   ar.CreationTime,
+		EndTime:        ar.EndTime,
+		Active:         ar.EndTime == 0,
+		Duration:       formatDuration(ar.CreationTime, ar.EndTime),
+	}
+}
+
+// enrichRunDetail adds everything that needs the run's info payload.
+func (h *Handler) enrichRunDetail(detail *RunDetail, info *RunInfo, runHash string) {
+	for _, m := range info.Traces.Metric {
+		if strings.HasPrefix(m.Name, "__system__") {
+			continue
+		}
+		detail.Metrics = append(detail.Metrics, MetricEntry{
+			Name:    m.Name,
+			Context: m.Context,
+		})
+	}
+	// Aim's info.traces.metric[].last_value is unreliable — observed
+	// showing the initial/default value (0.1) even when the actual
+	// series has progressed. Fetch the real series and take values[-1]
+	// for the displayed final loss.
+	if loss, err := h.aim.GetMetric(runHash, "train/loss", nil); err == nil && len(loss.Values) > 0 {
+		val := loss.Values[len(loss.Values)-1]
+		detail.FinalLoss = &val
+	}
+	// Extract all astrolabe.* tags. Empty strings are fine — the
+	// frontend falls back to v1 / "unknown" for legacy runs that
+	// pre-date the tagging.
+	tags := AstrolabeTagsFromParams(info.Params)
+	detail.Version = tags.Version
+	detail.SubmitID = tags.SubmitID
+	detail.SubmittedBy = tags.SubmittedBy
+	detail.Kind = tags.Kind
+}
+
+// evaluatedModelDetails resolves models this experiment evaluated but did
+// not produce, in stable hash order so the response does not reshuffle
+// between identical requests.
+//
+// Each model costs one GetRunInfo. A model whose run has been deleted
+// from Aim is skipped rather than rendered as an empty row — the eval
+// results still show on the Eval tab, keyed by hash.
+func (h *Handler) evaluatedModelDetails(evaluated, produced map[string]bool) []RunDetail {
+	missing := make([]string, 0, len(evaluated))
+	for hash := range evaluated {
+		if !produced[hash] {
+			missing = append(missing, hash)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	sort.Strings(missing)
+
+	out := make([]RunDetail, len(missing))
+	ok := make([]bool, len(missing))
+	var wg sync.WaitGroup
+	for i, hash := range missing {
+		wg.Add(1)
+		go func(i int, hash string) {
+			defer wg.Done()
+			info, err := h.aim.GetRunInfo(hash)
+			if err != nil {
+				return
+			}
+			ar := AimRun{
+				RunID:        hash,
+				Name:         info.Props.Name,
+				CreationTime: info.Props.CreationTime,
+				EndTime:      info.Props.EndTime,
+			}
+			ownExperiment := info.Props.Experiment.Name
+			detail := RunDetail{
+				Hash:           hash,
+				Name:           runLabel(ar, ownExperiment),
+				ExperimentName: ownExperiment,
+				CreationTime:   ar.CreationTime,
+				EndTime:        ar.EndTime,
+				Active:         ar.EndTime == 0,
+				Duration:       formatDuration(ar.CreationTime, ar.EndTime),
+				Evaluated:      true,
+			}
+			h.enrichRunDetail(&detail, info, hash)
+			out[i], ok[i] = detail, true
+		}(i, hash)
+	}
+	wg.Wait()
+
+	details := make([]RunDetail, 0, len(missing))
+	for i := range out {
+		if ok[i] {
+			details = append(details, out[i])
+		}
+	}
+	return details
 }
 
 // HandleExperimentIncludes returns the --include entries for an experiment,
@@ -876,12 +1006,40 @@ func extractPathParam(path, prefix, suffix string) string {
 // experiment are distinguishable. Falls back to the experiment name when
 // Aim returned its default placeholder ("Run: <hash>") or an empty name,
 // since that value carries no useful information.
+//
+// The experiment fallback is only honest for a run that belongs to the
+// experiment being displayed. A model pulled in because this experiment
+// evaluated it usually lives somewhere else, so labelling it with the
+// requesting experiment's name attributes it to the wrong experiment
+// outright — worse than showing no name. Callers pass the run's own
+// experiment; use runLabel for the rest of the fallback chain.
 func runDisplayName(ar AimRun, experimentName string) string {
 	name := strings.TrimSpace(ar.Name)
 	if name == "" || strings.HasPrefix(name, "Run: ") {
 		return experimentName
 	}
 	return name
+}
+
+// runLabel resolves a display label for a run that may not belong to the
+// experiment being rendered.
+//
+// Order: the run's own Aim name, then the experiment it actually lives
+// in, then a short hash. The short hash is a last resort but still beats
+// an empty cell or a borrowed experiment name — it is at least a
+// identifier the user can look up. Truncated for display only; every
+// data path carries the full hash.
+func runLabel(ar AimRun, ownExperiment string) string {
+	if name := strings.TrimSpace(ar.Name); name != "" && !strings.HasPrefix(name, "Run: ") {
+		return name
+	}
+	if exp := strings.TrimSpace(ownExperiment); exp != "" {
+		return exp
+	}
+	if len(ar.RunID) > 12 {
+		return ar.RunID[:12]
+	}
+	return ar.RunID
 }
 
 func formatDuration(creationTime, endTime float64) string {

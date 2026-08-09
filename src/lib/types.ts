@@ -76,6 +76,31 @@ export interface Run {
    * "by alice" when comparing across users. Empty for legacy runs.
    */
   submitted_by?: string;
+  /**
+   * astrolabe.kind. Absent or "training" means a model this experiment
+   * trained; anything else is a model that arrived some other way (an
+   * imported checkpoint, say). Use isTrainingRun rather than comparing
+   * this directly, so an unfamiliar kind is never treated as training.
+   */
+  kind?: string;
+  /**
+   * True when the experiment evaluated this model rather than producing
+   * it — the model may live in a different experiment entirely, which
+   * `experiment` then names.
+   */
+  evaluated?: boolean;
+}
+
+/**
+ * Whether a run should appear in training views (the loss chart, the
+ * run count, the training stats table).
+ *
+ * Deliberately a whitelist. Listing the kinds to exclude means every
+ * kind added later is silently treated as training — which is how
+ * imported models ended up counted as training runs.
+ */
+export function isTrainingRun(run: Run): boolean {
+  return !run.kind || run.kind === "training";
 }
 
 /**
