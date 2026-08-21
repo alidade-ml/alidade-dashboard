@@ -195,6 +195,15 @@ type AstrolabeTags struct {
 	// to the model run they score. Empty on non-eval runs.
 	TaskSet      string
 	ModelRunHash string
+	// SampleSet is written by astrolabe_callbacks.log_samples onto sample
+	// runs (``Kind == "sample"``). It labels one batch of qualitative
+	// outputs — "faces", "sentence-completion" — and the Examples tab
+	// groups by it. Empty on non-sample runs.
+	//
+	// It shares ModelRunHash with eval runs: both kinds attribute
+	// themselves to the training run they describe, and both use the same
+	// tag to do it.
+	SampleSet string
 }
 
 // AstrolabeTagsFromParams extracts the astrolabe.* tags the
@@ -224,6 +233,7 @@ func AstrolabeTagsFromParams(params map[string]interface{}) AstrolabeTags {
 		FinishedAtISO:  stringFromAny(params["astrolabe.finished_at_iso"]),
 		TaskSet:        stringFromAny(params["astrolabe.task_set"]),
 		ModelRunHash:   stringFromAny(params["astrolabe.model_run_hash"]),
+		SampleSet:      stringFromAny(params["astrolabe.sample_set"]),
 	}
 	if r := intFromAny(params["astrolabe.gpu_rate_cents_per_hour"]); r != nil {
 		tags.GPURateCentsPerHour = r
@@ -235,7 +245,7 @@ func AstrolabeTagsFromParams(params map[string]interface{}) AstrolabeTags {
 		tags.GPUType == "" || tags.Outcome == "" ||
 		tags.Kind == "" || tags.Repo == "" || tags.Backend == "" ||
 		tags.TaskSet == "" || tags.ModelRunHash == "" ||
-		tags.GPURateCentsPerHour == nil {
+		tags.SampleSet == "" || tags.GPURateCentsPerHour == nil {
 		if nested, ok := params["astrolabe"].(map[string]interface{}); ok {
 			if tags.Version == "" {
 				tags.Version = stringFromAny(nested["version"])
@@ -269,6 +279,9 @@ func AstrolabeTagsFromParams(params map[string]interface{}) AstrolabeTags {
 			}
 			if tags.ModelRunHash == "" {
 				tags.ModelRunHash = stringFromAny(nested["model_run_hash"])
+			}
+			if tags.SampleSet == "" {
+				tags.SampleSet = stringFromAny(nested["sample_set"])
 			}
 			if tags.GPURateCentsPerHour == nil {
 				if r := intFromAny(nested["gpu_rate_cents_per_hour"]); r != nil {

@@ -83,6 +83,10 @@ func main() {
 			handler.HandleRunInfo(w, r)
 		case strings.HasSuffix(path, "/evals"):
 			handler.HandleRunEvals(w, r)
+		// Uncached: discovery already fans out over every run, and a stale
+		// manifest hides a batch a researcher just logged.
+		case strings.HasSuffix(path, "/samples"):
+			handler.HandleRunSamples(w, r)
 		case strings.Contains(path, "/metrics/"):
 			cachedMetricData(w, r)
 		case strings.HasSuffix(path, "/metrics"):
