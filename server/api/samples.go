@@ -14,14 +14,11 @@ package api
 // one should recognise the other.
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -204,95 +201,50 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-// --- Batch payloads, read from astrolabe's export ---
-
-// SampleExportFormatVersion is the manifest layout this build understands.
-// astrolabe writes it into every manifest; the two ship on separate cadences,
-// so a mismatch is refused rather than parsed on a best effort. See
-// docs/samples-export.md in astrolabe.
-const SampleExportFormatVersion = 1
-
-// ManifestName is the file astrolabe writes per exported batch.
-const ManifestName = "manifest.json"
+// --- Batch payloads, read from Aim ---
 
 // SamplePair is one step of a batch: what went in, what came out.
 //
-// Every field but Step is a pointer because absent and empty are different
-// facts. A set logged without inputs (unconditional generation) has no
-// InputText; a model that returned the empty string has one, and it is "".
-// Collapsing those loses the only signal that says which happened.
+// Every field but Step is a pointer because absent and empty are
+// different facts. A set logged without inputs (unconditional
+// generation) has no InputText; a model that returned the empty string
+// has one, and it is "". Collapsing those loses the only signal that
+// says which happened.
 //
-// kind on the batch describes the OUTPUT. A prompt-to-image batch is
-// kind "image" with InputText set — read the per-pair fields, never infer
-// the input's type from the batch's kind.
+// Kind on the batch describes the OUTPUT. A prompt-to-image batch is
+// kind "image" with InputText set — read the per-pair fields, never
+// infer the input's type from the batch's kind.
 type SamplePair struct {
-	Step       int     `json:"step"`
+	Step       int64   `json:"step"`
 	InputText  *string `json:"input_text,omitempty"`
-	InputFile  *string `json:"input_file,omitempty"`
+	InputURI   *string `json:"input_uri,omitempty"`
 	OutputText *string `json:"output_text,omitempty"`
-	OutputFile *string `json:"output_file,omitempty"`
+	OutputURI  *string `json:"output_uri,omitempty"`
 }
 
-// SampleBatch is one exported directory: one log_samples call.
+// SampleBatch is one log_samples call, read back.
 type SampleBatch struct {
-	FormatVersion int          `json:"format_version"`
-	AimRunHash    string       `json:"aim_run_hash"`
-	SampleSet     string       `json:"sample_set"`
-	ModelRunHash  string       `json:"model_run_hash"`
-	Kind          string       `json:"kind"`
-	ExportedAt    string       `json:"exported_at"`
-	Pairs         []SamplePair `json:"pairs"`
+	AimRunHash string       `json:"aim_run_hash"`
+	SampleSet  string       `json:"sample_set"`
+	Kind       string       `json:"kind"`
+	Pairs      []SamplePair `json:"pairs"`
 }
 
-// errBatchNotExported separates "astrolabe has not exported this yet" from
-// "the export is broken". Discovery lists what exists in Aim; the export can
-// lag it, and a tab that renders an empty grid for a batch that simply has not
-// been written yet reads as data loss.
-var errBatchNotExported = errors.New("batch not exported")
-
-// sampleHashPattern guards the run hash before it becomes a filesystem path.
-// The hash arrives in a URL.
+// sampleHashPattern guards the run hash before it reaches a URL path.
 var sampleHashPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// readManifest loads one exported batch off disk.
+// HandleSampleBatch returns one sample batch.
 //
-// Returns errBatchNotExported when the directory or manifest is absent; any
-// other error means the export is present and unusable, which is a different
-// answer for the caller to give.
-func readManifest(samplesDir, aimRunHash string) (*SampleBatch, error) {
-	if !sampleHashPattern.MatchString(aimRunHash) {
-		return nil, fmt.Errorf("invalid run hash %q", aimRunHash)
-	}
-	path := filepath.Join(samplesDir, aimRunHash, ManifestName)
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, errBatchNotExported
-	}
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
-	}
-	var batch SampleBatch
-	if err := json.Unmarshal(data, &batch); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", path, err)
-	}
-	if batch.FormatVersion != SampleExportFormatVersion {
-		return nil, fmt.Errorf(
-			"%s is export format version %d; this dashboard reads version %d — upgrade the dashboard or re-run `astrolabe samples export --all --force`",
-			path, batch.FormatVersion, SampleExportFormatVersion)
-	}
-	// The client maps over this, so [] and not null.
-	if batch.Pairs == nil {
-		batch.Pairs = []SamplePair{}
-	}
-	return &batch, nil
-}
-
-// HandleSampleBatch returns one exported batch.
+// GET /api/samples/{aim_run_hash}?set=<sample_set>
+// → { aim_run_hash, sample_set, kind, pairs: [...] }
 //
-// GET /api/samples/{aim_run_hash}
-// → { format_version, aim_run_hash, sample_set, model_run_hash, kind, exported_at, pairs }
+// Reads the two sequences the producer wrote — sample/<set>/input and
+// sample/<set>/output — and joins them by STEP. They need not share a
+// step set: an absent input is unconditional generation, and a
+// partially drained buffer can leave one shorter.
 //
-// Image pairs carry filenames, not bytes; EXAMPLES-1.03 serves the files.
+// Text only. Images are EXAMPLES-1.03; this refuses them rather than
+// half-rendering a batch whose payloads it cannot serve.
 func (h *Handler) HandleSampleBatch(w http.ResponseWriter, r *http.Request) {
 	aimRunHash := extractPathParam(r.URL.Path, "/api/samples/", "")
 	if aimRunHash == "" {
@@ -303,14 +255,82 @@ func (h *Handler) HandleSampleBatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid run hash", http.StatusBadRequest)
 		return
 	}
-	batch, err := readManifest(h.samplesDir, aimRunHash)
-	if errors.Is(err, errBatchNotExported) {
-		http.Error(w, "batch not exported yet", http.StatusNotFound)
+	sampleSet := r.URL.Query().Get("set")
+	if sampleSet == "" {
+		http.Error(w, "missing set", http.StatusBadRequest)
 		return
 	}
+	if strings.Contains(sampleSet, "/") {
+		// The set is a path segment in the sequence name. A slash would
+		// silently address a different sequence.
+		http.Error(w, "invalid set", http.StatusBadRequest)
+		return
+	}
+
+	inputs, err := h.aim.GetTextSequence(aimRunHash, SampleSeqPrefix+sampleSet+"/input")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	outputs, err := h.aim.GetTextSequence(aimRunHash, SampleSeqPrefix+sampleSet+"/output")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	// An image batch decodes with empty Text and a populated BlobURI.
+	// Serving it would render every output as an empty string, which
+	// looks like a model that produced nothing.
+	for _, rec := range append(append([]ObjectRecord{}, inputs.Records...), outputs.Records...) {
+		if rec.BlobURI != "" {
+			http.Error(w, "this batch contains images; image payloads are not served yet",
+				http.StatusNotImplemented)
+			return
+		}
+	}
+
+	batch := SampleBatch{
+		AimRunHash: aimRunHash,
+		SampleSet:  sampleSet,
+		Kind:       "text",
+		Pairs:      joinByStep(inputs, outputs),
+	}
 	writeJSON(w, batch)
+}
+
+// joinByStep pairs the two sequences on their step, not their position.
+//
+// The output sequence drives the ordering: log_samples always tracks an
+// output and only sometimes an input, so an output with no input is
+// unconditional generation while an input with no output is a broken
+// write. The latter is kept rather than dropped — a visible half-pair
+// is a better bug report than a silently shorter batch.
+func joinByStep(inputs, outputs *ObjectSequence) []SamplePair {
+	seen := map[int64]bool{}
+	pairs := make([]SamplePair, 0, len(outputs.Steps))
+
+	add := func(step int64) {
+		if seen[step] {
+			return
+		}
+		seen[step] = true
+		p := SamplePair{Step: step}
+		if rec, ok := inputs.At(step); ok {
+			text := rec.Text
+			p.InputText = &text
+		}
+		if rec, ok := outputs.At(step); ok {
+			text := rec.Text
+			p.OutputText = &text
+		}
+		pairs = append(pairs, p)
+	}
+	for _, step := range outputs.Steps {
+		add(step)
+	}
+	for _, step := range inputs.Steps {
+		add(step)
+	}
+	sort.Slice(pairs, func(i, j int) bool { return pairs[i].Step < pairs[j].Step })
+	return pairs
 }
