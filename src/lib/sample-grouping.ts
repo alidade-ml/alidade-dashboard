@@ -31,6 +31,15 @@ export const IDENTITY_DIMS: ReadonlySet<GroupDimension> = new Set<GroupDimension
   "model",
 ]);
 
+/** Reader-facing names for the coordinates. Lives here rather than in a
+ *  component because the plan, the tests and the render all use them. */
+export const DIMENSION_LABELS: Record<GroupDimension, string> = {
+  sampleSet: "Sample set",
+  input: "Input",
+  model: "Model",
+  step: "Step",
+};
+
 export interface SampleView {
   order: GroupDimension[];
   /** Count of dims above the fold. `order[fold]` is the column axis. */
@@ -146,6 +155,61 @@ export function cardLabelDims(
   );
 }
 
+// ------------------------------------------------------- legal orderings
+
+/**
+ * Pairs that may not be inverted: `[a, b]` means a must stay above b.
+ *
+ * These are containment, not preference. An input belongs to a sample set —
+ * it is one of the prompts *in* that batch — so a view nesting sets inside
+ * inputs claims a prompt spans sets, which is not a thing. A step belongs to
+ * a model: it is the index of that model's sample, so steps outside models
+ * would group `step 0` across runs that share nothing but a counter.
+ *
+ * `sampleSet` deliberately does NOT precede `model`. A multi-modal model
+ * producing several sample sets is exactly the case where model-outermost is
+ * the view you want, and an earlier version of this file asserted the
+ * opposite from three fixtures that happened not to contain one.
+ *
+ * Twenty-four orderings become six, and all six are stories someone would
+ * actually tell.
+ */
+export const ORDER_CONSTRAINTS: ReadonlyArray<readonly [GroupDimension, GroupDimension]> = [
+  ["sampleSet", "input"],
+  ["model", "step"],
+];
+
+export function isLegalOrder(order: GroupDimension[]): boolean {
+  return ORDER_CONSTRAINTS.every(([a, b]) => order.indexOf(a) < order.indexOf(b));
+}
+
+/** Why a move is refused, for the UI to explain rather than just resist. */
+export function illegalReason(order: GroupDimension[]): string | null {
+  for (const [a, b] of ORDER_CONSTRAINTS) {
+    if (order.indexOf(a) > order.indexOf(b)) {
+      return a === "sampleSet" ? "an input belongs to a sample set" : "a step belongs to a model";
+    }
+  }
+  return null;
+}
+
+/** Indices `from` may legally be dropped on. */
+export function legalMoveTargets(view: SampleView, from: number): number[] {
+  const out: number[] = [];
+  for (let to = 0; to < view.order.length; to++) {
+    if (to !== from && isLegalOrder(moveDim(view, from, to).order)) out.push(to);
+  }
+  return out;
+}
+
+/** Only `input` and `model` are axes. `sampleSet` is a container and `step`
+ *  is an ordinal; either one in the column slot wastes the horizontal axis on
+ *  a dimension nobody scans across. */
+export function columnDimIsAxis(view: SampleView): boolean {
+  const col = view.fold < view.order.length ? view.order[view.fold] : null;
+  return col === "input" || col === "model";
+}
+
 // ------------------------------------------------------- view manipulation
 
 /** The fold never reaches the top. At fold 0 there are no sections at all:
@@ -171,8 +235,119 @@ export function moveDim(view: SampleView, from: number, to: number): SampleView 
   return { order: next, fold: clampFold(fold, next.length) };
 }
 
+/**
+ * Move the fold to the next position where the column slot holds a real axis.
+ *
+ * Measured across all 24 legal views: folds 3 and 4 render 9-16 separate
+ * matrices where folds 1 and 2 render 3, without exception in any ordering.
+ * They are not a taste call, they are always fragmented — and what folds 1
+ * and 2 vary between them is which of `input`/`model` sits in the columns.
+ * So the fold, over its useful range, IS the transpose; the other positions
+ * are the degenerate tail.
+ *
+ * Skipping rather than clamping means the arrows always do something: press
+ * down and you land on the next view worth looking at, not on a wall.
+ */
 export function setFold(view: SampleView, fold: number): SampleView {
-  return { order: view.order, fold: clampFold(fold, view.order.length) };
+  const offered = legalFolds(view.order);
+  if (offered.length === 0) return view;
+  const direction = fold >= view.fold ? 1 : -1;
+  const candidates = direction > 0 ? offered : [...offered].reverse();
+  return {
+    order: view.order,
+    fold:
+      candidates.find((f) => (direction > 0 ? f >= fold : f <= fold)) ??
+      (direction > 0 ? offered[offered.length - 1] : offered[0]),
+  };
+}
+
+/**
+ * Fold positions worth offering for this order.
+ *
+ * Two rules, both from measurement rather than taste:
+ *
+ *  - the column slot must hold a real axis (`input` or `model`), because
+ *    nobody scans across a container or an ordinal; and
+ *  - the fold may not pass 2, because a view gets **one container level plus
+ *    two axes** and no more. Past that you are nesting an axis as a section,
+ *    which fragments by construction: measured across every legal ordering,
+ *    folds 3 and 4 rendered 9-16 separate matrices where folds 1 and 2
+ *    rendered 3.
+ *
+ * The second rule is not implied by the first. `sampleSet>model>step>input`
+ * at fold 3 has `input` — a real axis — in its column slot and still splits
+ * the page into ten blocks. The sweep caught that; the eye had not.
+ */
+/**
+ * The fold is gone, fixed here at 2: one container level, then rows, then
+ * columns.
+ *
+ * It was dropped by measurement, not taste. Its two positions looked like a
+ * transpose, but the transpose comes from reordering the dims — what fold 1
+ * actually did was collapse the second axis into the cell, and on the
+ * fixtures that stacked 4 to 6 samples into one cell where fold 2 never
+ * exceeded 2. A control whose other position is always worse is not a
+ * control, and it duplicated something dragging already did.
+ */
+export const MAX_FOLD = 2;
+export const FIXED_FOLD = 2;
+
+/** The whole offered surface, named. Three views, because three is what
+ *  survived inspection — every other reachable layout either fragmented the
+ *  page, crammed a cell, or drew a page another view already drew. */
+export interface NamedView {
+  id: string;
+  name: string;
+  /** What a row means, in the reader's terms. */
+  hint: string;
+  order: GroupDimension[];
+}
+
+export const VIEWS: NamedView[] = [
+  {
+    id: "side-by-side",
+    name: "Side by side",
+    hint: "One row per input, one column per model",
+    order: ["sampleSet", "input", "model", "step"],
+  },
+  {
+    id: "model-rows",
+    name: "Model rows",
+    hint: "One row per model, inputs across",
+    order: ["sampleSet", "model", "input", "step"],
+  },
+  {
+    id: "model-first",
+    name: "Model first",
+    hint: "A model and everything it made, across sample sets",
+    order: ["model", "sampleSet", "input", "step"],
+  },
+];
+
+export function viewFor(named: NamedView): SampleView {
+  return { order: named.order, fold: FIXED_FOLD };
+}
+
+/** The named view whose order matches, if any. Dragging can land on an order
+ *  that is legal but not one of the three; this is how the picker knows
+ *  whether to highlight anything. */
+export function namedViewFor(view: SampleView): NamedView | null {
+  return VIEWS.find((v) => v.order.join() === view.order.join()) ?? null;
+}
+
+export function legalFolds(order: GroupDimension[]): number[] {
+  const out: number[] = [];
+  for (let f = MIN_FOLD; f <= Math.min(MAX_FOLD, order.length); f++) {
+    if (columnDimIsAxis({ order, fold: f })) out.push(f);
+  }
+  return out;
+}
+
+/** An order is offerable when it puts a real axis in the column slot at the
+ *  fixed fold. Three of the six legal orders do; the rest put `step` or
+ *  `sampleSet` there, which nobody scans across. */
+export function orderIsOfferable(order: GroupDimension[]): boolean {
+  return isLegalOrder(order) && columnDimIsAxis({ order, fold: FIXED_FOLD });
 }
 
 // --------------------------------------------------------------- the plan

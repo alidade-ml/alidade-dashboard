@@ -26,14 +26,11 @@
  */
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  DEFAULT_VIEW,
-  DIMENSION_LABELS,
-  SampleGroupingPanel,
-  readStoredView,
-} from "@/components/sample-grouping-panel";
+import { SampleGroupingPanel } from "@/components/sample-grouping-panel";
 import {
   ALL_DIMENSIONS,
+  DIMENSION_LABELS,
+  VIEWS,
   cardLabelDims,
   cellOwnsInput,
   dimensionValue,
@@ -41,11 +38,14 @@ import {
   planView,
   type Crumb,
   type GroupDimension,
+  viewFor,
   type PlannedBlock,
   type PlannedSection,
   type SampleView,
 } from "@/lib/sample-grouping";
-import { MODEL_COLORS, MODEL_HASHES, SAMPLE_ROWS, type SampleRow } from "@/lib/sample-fixtures";
+import { FixtureControls } from "@/components/fixture-controls";
+import { MODEL_COLORS, MODEL_HASHES, type SampleRow } from "@/lib/sample-fixtures";
+import { DEFAULT_SHAPE, generateSamples, type FixtureShape } from "@/lib/sample-generator";
 import { cn } from "@/lib/utils";
 
 // ------------------------------------------------------------------ grouping
@@ -252,12 +252,24 @@ function Heading({
 /** One value covering an entire section — "everything below came from this
  *  model". Rendered apart from the crumb path so it cannot be misread as a
  *  grouping level that outranks the levels below it. */
-function ConstantColumn({ dim, value }: { dim: GroupDimension; value: string }) {
+function ConstantColumn({
+  dim,
+  value,
+  rows,
+}: {
+  dim: GroupDimension;
+  value: string;
+  /** Needed to find the image behind an `input` value. This was an empty
+   *  array — a placeholder that shipped — so a set with a single input folded
+   *  the input into this chip and then drew nothing, and the denoise frame
+   *  vanished from the page while the plan believed it was on the axis. */
+  rows: SampleRow[];
+}) {
   return (
     <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
       <span className="font-mono text-[9px] uppercase tracking-wider">{DIMENSION_LABELS[dim]}</span>
       {dim === "model" && <ModelSwatch model={value} />}
-      {dim === "input" && <InputThumb value={value} rows={[]} />}
+      {dim === "input" && <InputThumb value={value} rows={rows} />}
       <span className="text-foreground">{value}</span>
     </span>
   );
@@ -364,7 +376,7 @@ function BlockView({ block, allRows }: { block: PlannedBlock; allRows: SampleRow
 
 function SectionView({ section, depth }: { section: PlannedSection; depth: number }) {
   const chips = section.constants.map((c) => (
-    <ConstantColumn key={c.dim} dim={c.dim} value={c.value} />
+    <ConstantColumn key={c.dim} dim={c.dim} value={c.value} rows={section.rows} />
   ));
 
   const body = (
@@ -482,17 +494,16 @@ function ModelLegend({
 // ------------------------------------------------------------------ tab
 
 export function SamplesTab() {
-  const [view, setView] = useState<SampleView>(() => readStoredView() ?? DEFAULT_VIEW);
+  const [view, setView] = useState<SampleView>(() => viewFor(VIEWS[0]));
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [shape, setShape] = useState<FixtureShape>(DEFAULT_SHAPE);
 
-  const models = useMemo(() => distinct(SAMPLE_ROWS, "model"), []);
-  const rows = useMemo(() => SAMPLE_ROWS.filter((r) => !hidden.has(r.model)), [hidden]);
+  // Generated rather than hand-written, so the dials in the panel change what
+  // the layouts have to survive.
+  const allRows = useMemo(() => generateSamples(shape), [shape]);
 
-  const cardinality = useMemo(() => {
-    const counts = {} as Record<GroupDimension, number>;
-    for (const dim of ALL_DIMENSIONS) counts[dim] = distinct(rows, dim).length;
-    return counts;
-  }, [rows]);
+  const models = useMemo(() => distinct(allRows, "model"), [allRows]);
+  const rows = useMemo(() => allRows.filter((r) => !hidden.has(r.model)), [allRows, hidden]);
 
   // Every layout decision happens here, in one testable place. The components
   // below render the result and decide nothing — see sample-grouping.test.ts,
@@ -539,8 +550,13 @@ export function SamplesTab() {
         )}
       </div>
 
-      <div className="flex w-full shrink-0 flex-col gap-3 lg:w-72">
-        <SampleGroupingPanel view={view} onChange={setView} cardinality={cardinality} />
+      {/* Sticky: the view picker and legend are used *while* reading the
+          samples, and they were scrolling out of reach on a long page. Offset
+          clears AppShell's own sticky header; the column scrolls internally
+          if the dials make it taller than the viewport. */}
+      <div className="flex w-full shrink-0 flex-col gap-3 lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:w-72 lg:overflow-y-auto">
+        <SampleGroupingPanel view={view} onChange={setView} />
+        <FixtureControls shape={shape} onChange={setShape} total={allRows.length} />
         <ModelLegend
           models={models}
           hidden={hidden}
