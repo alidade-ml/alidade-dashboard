@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -43,6 +44,16 @@ func (fr fakeRun) displayName() string {
 // get run info (for params/tags). The returned client points at the
 // server; t.Cleanup tears it down.
 func fakeAim(t *testing.T, runs []fakeRun) *AimClient {
+	t.Helper()
+	return fakeAimCounting(t, runs, nil)
+}
+
+// fakeAimCounting is fakeAim with a counter on the run-info route, so a
+// test can assert how WIDE a handler's fan-out is rather than only what
+// it returned. A handler that walks the whole project and one that walks
+// a single experiment return the same body; the call count is the only
+// observable difference.
+func fakeAimCounting(t *testing.T, runs []fakeRun, infoCalls *int32) *AimClient {
 	t.Helper()
 
 	// Bucket runs by experiment, assigning stable IDs.
@@ -107,6 +118,9 @@ func fakeAim(t *testing.T, runs []fakeRun) *AimClient {
 				return
 			}
 			hash := parts[0]
+			if infoCalls != nil {
+				atomic.AddInt32(infoCalls, 1)
+			}
 			for _, list := range byExp {
 				for _, fr := range list {
 					if fr.hash == hash {
