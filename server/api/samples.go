@@ -57,6 +57,24 @@ type SampleManifestEntry struct {
 // Discovery is by tag: astrolabe.kind == "sample" AND
 // astrolabe.model_run_hash == <hash>. Multiple batches sharing a
 // sample_set collapse to the newest by creation_time.
+//
+// Scoped to the model run's own Aim experiment. log_samples files a
+// batch under the submitting experiment:
+//
+//	experiment=identity.get(TAG_EXPERIMENT) or f"sample/{sample_set}"
+//
+// and ambient_identity() reads the AIM_RUN_TAGS the engine sets at
+// setup — so a run's sample batches are its siblings. The first cut
+// walked every run in the project, copied from HandleRunEvals, where
+// leaving the experiment IS required: a model evaluated by one
+// experiment can have been produced by another. Samples do not have
+// that property, so this was project-wide work to find something next
+// door.
+//
+// The trade is recorded in EXAMPLES-1.01b: a batch logged with no
+// submit in scope lands under "sample/<set>" and is not found here.
+// That is a known gap belonging to the producer, not a reason to
+// restore the scan.
 func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 	modelRunHash := extractPathParam(r.URL.Path, "/api/runs/", "/samples")
 	if modelRunHash == "" {
@@ -64,7 +82,16 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	experiments, err := h.aim.ListExperiments()
+	// Which experiment is the model run in? One call, and it also
+	// establishes the run exists.
+	modelInfo, err := h.aim.GetRunInfo(modelRunHash)
+	if errors.Is(err, ErrRunNotFound) {
+		// A hash Aim does not know is the caller's mistake, and a
+		// different fact from "no samples" or "Aim is down". The old
+		// scan could not tell them apart: it returned [] for a typo.
+		http.Error(w, "run not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		// 502 rather than an empty list. An empty list reads as "this
 		// run has no samples", which is a plausible and wrong answer —
@@ -72,41 +99,34 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	// No guard on an empty experiment ID. Aim always places a run in an
+	// experiment, so an empty one means a malformed info response, and
+	// letting that fall through to a 502 is the honest answer — an early
+	// return of [] would report "no samples" for a broken dependency.
+	expRuns, err := h.aim.ListExperimentRuns(modelInfo.Props.Experiment.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
 
-	// No pre-filter on experiment name. log_samples files a batch under
-	// the submitting experiment when one is in scope, but under local-aim
-	// mode the sync sidecar re-stamps synced runs with the *training*
-	// experiment name — so filtering on "sample/<set>" would silently
-	// drop precisely the runs this exists to find. The tag is the source
-	// of truth. Same reasoning as HandleRunEvals, same trap.
 	type candidate struct {
 		hash         string
 		creationTime float64
 	}
 	var candidates []candidate
-	for _, exp := range experiments {
-		if exp.RunCount == 0 || exp.Archived {
+	for _, ar := range expRuns.Runs {
+		if ar.Archived || ar.RunID == modelRunHash {
 			continue
 		}
-		expRuns, err := h.aim.ListExperimentRuns(exp.ID)
-		if err != nil {
-			continue
-		}
-		for _, ar := range expRuns.Runs {
-			if ar.Archived {
-				continue
-			}
-			candidates = append(candidates, candidate{
-				hash:         ar.RunID,
-				creationTime: ar.CreationTime,
-			})
-		}
+		candidates = append(candidates, candidate{
+			hash:         ar.RunID,
+			creationTime: ar.CreationTime,
+		})
 	}
 
 	// One GetRunInfo per candidate is unavoidable — the tags live in
-	// params — so fan out. Same pattern as eval discovery, and the same
-	// cost: this walks every run in the project. Fine at hundreds,
-	// wrong at thousands, and now the second endpoint paying it.
+	// params — so fan out. The count is now the experiment's runs
+	// rather than the project's.
 	type indexed struct {
 		e  SampleManifestEntry
 		ok bool

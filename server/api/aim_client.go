@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,8 +37,8 @@ type Experiment struct {
 }
 
 type ExperimentRuns struct {
-	ID   string    `json:"id"`
-	Runs []AimRun  `json:"runs"`
+	ID   string   `json:"id"`
+	Runs []AimRun `json:"runs"`
 }
 
 type AimRun struct {
@@ -65,14 +66,14 @@ type MetricInfo struct {
 }
 
 type RunProps struct {
-	Name         string          `json:"name"`
-	Description  *string         `json:"description"`
-	Experiment   RunExperiment   `json:"experiment"`
-	Tags         []interface{}   `json:"tags"`
-	CreationTime float64         `json:"creation_time"`
-	EndTime      float64         `json:"end_time"`
-	Archived     bool            `json:"archived"`
-	Active       bool            `json:"active"`
+	Name         string        `json:"name"`
+	Description  *string       `json:"description"`
+	Experiment   RunExperiment `json:"experiment"`
+	Tags         []interface{} `json:"tags"`
+	CreationTime float64       `json:"creation_time"`
+	EndTime      float64       `json:"end_time"`
+	Archived     bool          `json:"archived"`
+	Active       bool          `json:"active"`
 }
 
 type RunExperiment struct {
@@ -129,6 +130,9 @@ func (c *AimClient) ListExperimentRuns(experimentID string) (*ExperimentRuns, er
 }
 
 // GetRunInfo returns full info for a run (props, metric names, etc.).
+// ErrRunNotFound is returned when Aim has no run with the given hash.
+var ErrRunNotFound = errors.New("run not found")
+
 func (c *AimClient) GetRunInfo(runHash string) (*RunInfo, error) {
 	url := fmt.Sprintf("%s/api/runs/%s/info/", c.baseURL, runHash)
 	resp, err := c.httpClient.Get(url)
@@ -137,6 +141,12 @@ func (c *AimClient) GetRunInfo(runHash string) (*RunInfo, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		// Distinct from "Aim is down": a caller that starts from a run
+		// hash needs to tell a bad hash from a broken dependency, and
+		// the two want different HTTP statuses at the edge.
+		return nil, fmt.Errorf("%w: %s", ErrRunNotFound, runHash)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("aim API returned %d for run %s", resp.StatusCode, runHash)
 	}
@@ -208,9 +218,9 @@ type AstrolabeTags struct {
 
 // AstrolabeTagsFromParams extracts the astrolabe.* tags the
 // astrolabe-composer-callback writes to an Aim run. The callback does
-// ``run["astrolabe.version"] = "v3"`` etc., which Aim may serialize
-// either as a flat key (``params["astrolabe.version"]``) or nested
-// under a top-level "astrolabe" mapping (``params["astrolabe"]["version"]``)
+// “run["astrolabe.version"] = "v3"“ etc., which Aim may serialize
+// either as a flat key (“params["astrolabe.version"]“) or nested
+// under a top-level "astrolabe" mapping (“params["astrolabe"]["version"]“)
 // depending on the Aim version. Try both before giving up.
 //
 // Any field may be empty if the run wasn't tagged or the params shape
