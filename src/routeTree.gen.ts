@@ -9,10 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SamplesLabRouteImport } from './routes/samples-lab'
 import { Route as ExperimentRouteImport } from './routes/experiment'
 import { Route as CostRouteImport } from './routes/cost'
 import { Route as IndexRouteImport } from './routes/index'
 
+const SamplesLabRoute = SamplesLabRouteImport.update({
+  id: '/samples-lab',
+  path: '/samples-lab',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ExperimentRoute = ExperimentRouteImport.update({
   id: '/experiment',
   path: '/experiment',
@@ -33,34 +39,45 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/cost': typeof CostRoute
   '/experiment': typeof ExperimentRoute
+  '/samples-lab': typeof SamplesLabRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/cost': typeof CostRoute
   '/experiment': typeof ExperimentRoute
+  '/samples-lab': typeof SamplesLabRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/cost': typeof CostRoute
   '/experiment': typeof ExperimentRoute
+  '/samples-lab': typeof SamplesLabRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/cost' | '/experiment'
+  fullPaths: '/' | '/cost' | '/experiment' | '/samples-lab'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/cost' | '/experiment'
-  id: '__root__' | '/' | '/cost' | '/experiment'
+  to: '/' | '/cost' | '/experiment' | '/samples-lab'
+  id: '__root__' | '/' | '/cost' | '/experiment' | '/samples-lab'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CostRoute: typeof CostRoute
   ExperimentRoute: typeof ExperimentRoute
+  SamplesLabRoute: typeof SamplesLabRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/samples-lab': {
+      id: '/samples-lab'
+      path: '/samples-lab'
+      fullPath: '/samples-lab'
+      preLoaderRoute: typeof SamplesLabRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/experiment': {
       id: '/experiment'
       path: '/experiment'
@@ -89,6 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CostRoute: CostRoute,
   ExperimentRoute: ExperimentRoute,
+  SamplesLabRoute: SamplesLabRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
