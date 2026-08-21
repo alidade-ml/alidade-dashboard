@@ -20,6 +20,7 @@ func main() {
 	colorsFile := flag.String("colors", "", "Path to colors.json (default: config/colors.json next to binary)")
 	staticDir := flag.String("static", "", "Path to static files directory (default: static/ next to binary)")
 	stateDB := flag.String("state-db", "", "Path to astrolabe state SQLite DB (default: /var/lib/astrolabe/state.db)")
+	samplesDir := flag.String("samples-dir", "", "Path to astrolabe's sample export directory (default: /var/lib/astrolabe/samples)")
 	flag.Parse()
 
 	// Resolve paths relative to the binary location
@@ -56,7 +57,14 @@ func main() {
 		log.Printf("Warning: state DB unavailable at %s (%v); experiments list will be empty until the engine writes its first submit", *stateDB, err)
 		stateReader = nil
 	}
-	handler := api.NewHandler(aimClient, stateReader, colors)
+	// Sample exports. Default matches astrolabe's samples_export_dir. The
+	// directory may not exist — nothing has necessarily been exported — and
+	// that is a 404 on the batch route, not a startup failure.
+	if *samplesDir == "" {
+		*samplesDir = "/var/lib/astrolabe/samples"
+	}
+
+	handler := api.NewHandler(aimClient, stateReader, colors).WithSamplesDir(*samplesDir)
 
 	// Response caches. TTLs and bounds chosen per plans/dashboard-scaling.md:
 	//   - 2s on state-shaped endpoints (experiments list + per-experiment
@@ -95,6 +103,9 @@ func main() {
 			http.NotFound(w, r)
 		}
 	})
+	// Uncached for the same reason as discovery: a researcher who just
+	// re-ran the export should see it.
+	mux.HandleFunc("/api/samples/", handler.HandleSampleBatch)
 	mux.HandleFunc("/api/experiments", experimentsCache.Middleware(handler.HandleExperiments))
 	mux.HandleFunc("/api/experiments/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -131,6 +142,7 @@ func main() {
 	log.Printf("Astrolabe dashboard starting on %s", *addr)
 	log.Printf("  Aim API: %s", *aimURL)
 	log.Printf("  Static:  %s", *staticDir)
+	log.Printf("  Samples: %s", *samplesDir)
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatal(err)
 	}
