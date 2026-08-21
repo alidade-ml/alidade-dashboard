@@ -27,8 +27,13 @@ export interface SampleRow {
   /** Prompt text for text inputs; label for image inputs; null when the
    *  generation was unconditional. */
   input: string | null;
-  /** Present when the input is itself an image (denoising, style transfer). */
+  /** Present when the input is itself an image (denoising, style transfer).
+   *  Lab only: the workbench draws tiles from a seed. Real samples carry
+   *  `inputUrl`. */
   inputSeed?: number;
+  /** Hub URL for a real input image. Wins over `inputSeed` when both are
+   *  set, which never happens outside a test. */
+  inputUrl?: string;
   /** Run name, as shown on Training and Eval. */
   model: string;
   /** astrolabe.model_run_hash — the join key, never typed by a human. */
@@ -36,8 +41,10 @@ export interface SampleRow {
   step: number;
   /** Text output. */
   output?: string;
-  /** Image output. */
+  /** Image output. Lab only — see `inputSeed`. */
   outputSeed?: number;
+  /** Hub URL for a real output image. */
+  outputUrl?: string;
 }
 
 /** Colour per model, standing in for the hub's shared runColors map so a run

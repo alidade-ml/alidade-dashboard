@@ -148,6 +148,38 @@ export interface EvalManifestEntry {
   creation_time: number;
 }
 
+/** One sample batch: one log_samples call. Payloads are fetched
+ *  separately — the manifest is cheap and the payloads are not. */
+export interface SampleManifestEntry {
+  aim_run_hash: string;
+  sample_set: string;
+  model_run_hash: string;
+  creation_time: number;
+}
+
+/** One step of a batch, joined by step on the server.
+ *
+ *  Absent and empty are different facts, so these are optional rather
+ *  than defaulted to "": a set logged without inputs has no input_text
+ *  at all, while a model that returned the empty string has one and it
+ *  is "". Test with `"input_text" in pair`, never with truthiness. */
+export interface SamplePair {
+  step: number;
+  input_text?: string;
+  input_uri?: string;
+  output_text?: string;
+  output_uri?: string;
+}
+
+/** `kind` describes the OUTPUT, not the input. A prompt-to-image batch
+ *  is kind "image" with input_text set. Read the per-pair fields. */
+export interface SampleBatch {
+  aim_run_hash: string;
+  sample_set: string;
+  kind: "text" | "image";
+  pairs: SamplePair[];
+}
+
 /** Shape of /api/runs/{hash}/info — same as the existing Aim REST
  *  response. We only extract metric names from props for the eval
  *  table-vs-trace dispatch; the full payload is opaque otherwise. */
