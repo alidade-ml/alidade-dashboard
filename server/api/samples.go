@@ -14,7 +14,13 @@ package api
 // one should recognise the other.
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"sync"
 )
@@ -176,4 +182,115 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, out)
+}
+
+// --- Batch payloads, read from astrolabe's export ---
+
+// SampleExportFormatVersion is the manifest layout this build understands.
+// astrolabe writes it into every manifest; the two ship on separate cadences,
+// so a mismatch is refused rather than parsed on a best effort. See
+// docs/samples-export.md in astrolabe.
+const SampleExportFormatVersion = 1
+
+// ManifestName is the file astrolabe writes per exported batch.
+const ManifestName = "manifest.json"
+
+// SamplePair is one step of a batch: what went in, what came out.
+//
+// Every field but Step is a pointer because absent and empty are different
+// facts. A set logged without inputs (unconditional generation) has no
+// InputText; a model that returned the empty string has one, and it is "".
+// Collapsing those loses the only signal that says which happened.
+//
+// kind on the batch describes the OUTPUT. A prompt-to-image batch is
+// kind "image" with InputText set — read the per-pair fields, never infer
+// the input's type from the batch's kind.
+type SamplePair struct {
+	Step       int     `json:"step"`
+	InputText  *string `json:"input_text,omitempty"`
+	InputFile  *string `json:"input_file,omitempty"`
+	OutputText *string `json:"output_text,omitempty"`
+	OutputFile *string `json:"output_file,omitempty"`
+}
+
+// SampleBatch is one exported directory: one log_samples call.
+type SampleBatch struct {
+	FormatVersion int          `json:"format_version"`
+	AimRunHash    string       `json:"aim_run_hash"`
+	SampleSet     string       `json:"sample_set"`
+	ModelRunHash  string       `json:"model_run_hash"`
+	Kind          string       `json:"kind"`
+	ExportedAt    string       `json:"exported_at"`
+	Pairs         []SamplePair `json:"pairs"`
+}
+
+// errBatchNotExported separates "astrolabe has not exported this yet" from
+// "the export is broken". Discovery lists what exists in Aim; the export can
+// lag it, and a tab that renders an empty grid for a batch that simply has not
+// been written yet reads as data loss.
+var errBatchNotExported = errors.New("batch not exported")
+
+// sampleHashPattern guards the run hash before it becomes a filesystem path.
+// The hash arrives in a URL.
+var sampleHashPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// readManifest loads one exported batch off disk.
+//
+// Returns errBatchNotExported when the directory or manifest is absent; any
+// other error means the export is present and unusable, which is a different
+// answer for the caller to give.
+func readManifest(samplesDir, aimRunHash string) (*SampleBatch, error) {
+	if !sampleHashPattern.MatchString(aimRunHash) {
+		return nil, fmt.Errorf("invalid run hash %q", aimRunHash)
+	}
+	path := filepath.Join(samplesDir, aimRunHash, ManifestName)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, errBatchNotExported
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	var batch SampleBatch
+	if err := json.Unmarshal(data, &batch); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	if batch.FormatVersion != SampleExportFormatVersion {
+		return nil, fmt.Errorf(
+			"%s is export format version %d; this dashboard reads version %d — upgrade the dashboard or re-run `astrolabe samples export --all --force`",
+			path, batch.FormatVersion, SampleExportFormatVersion)
+	}
+	// The client maps over this, so [] and not null.
+	if batch.Pairs == nil {
+		batch.Pairs = []SamplePair{}
+	}
+	return &batch, nil
+}
+
+// HandleSampleBatch returns one exported batch.
+//
+// GET /api/samples/{aim_run_hash}
+// → { format_version, aim_run_hash, sample_set, model_run_hash, kind, exported_at, pairs }
+//
+// Image pairs carry filenames, not bytes; EXAMPLES-1.03 serves the files.
+func (h *Handler) HandleSampleBatch(w http.ResponseWriter, r *http.Request) {
+	aimRunHash := extractPathParam(r.URL.Path, "/api/samples/", "")
+	if aimRunHash == "" {
+		http.Error(w, "missing run hash", http.StatusBadRequest)
+		return
+	}
+	if !sampleHashPattern.MatchString(aimRunHash) {
+		http.Error(w, "invalid run hash", http.StatusBadRequest)
+		return
+	}
+	batch, err := readManifest(h.samplesDir, aimRunHash)
+	if errors.Is(err, errBatchNotExported) {
+		http.Error(w, "batch not exported yet", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, batch)
 }

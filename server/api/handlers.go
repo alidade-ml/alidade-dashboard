@@ -14,11 +14,23 @@ type Handler struct {
 	aim    *AimClient
 	state  *StateReader
 	colors []string
+	// Where astrolabe's `samples export` writes its manifests. Optional:
+	// a NUC that has never exported a batch still serves every other route.
+	samplesDir string
 }
 
 // NewHandler creates a Handler with the given Aim client, state reader, and color palette.
 func NewHandler(aim *AimClient, state *StateReader, colors []string) *Handler {
 	return &Handler{aim: aim, state: state, colors: colors}
+}
+
+// WithSamplesDir points the handler at astrolabe's sample export directory.
+//
+// Chained rather than a fourth constructor argument so the five existing
+// call sites that have nothing to do with samples stay untouched.
+func (h *Handler) WithSamplesDir(dir string) *Handler {
+	h.samplesDir = dir
+	return h
 }
 
 // --- JSON response types ---
