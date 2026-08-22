@@ -584,3 +584,59 @@ func ParseObjectSequence(body []byte) (*ObjectSequence, error) {
 	}
 	return seq, nil
 }
+
+// GetBlobs resolves image blob URIs to bytes.
+//
+// Repo-level route with NO run hash in the path: Aim registers it once
+// per sequence type whose config sets resolve_blobs=False, which is
+// Images and Audios. The uri is Aim's own opaque token (a Fernet-
+// encrypted resource path); it is passed through verbatim and must
+// never be parsed, rebuilt or normalised on this side — only Aim can
+// mint one, and a hub-side reconstruction would appear to work against
+// today's Aim and break silently on any upgrade.
+//
+// Batched because the route is batched, and keyed by uri in the
+// response. Callers must look up by uri and never zip the result
+// against request order: with one image the two are indistinguishable,
+// and with two they are not.
+func (c *AimClient) GetBlobs(uris []string) (map[string][]byte, error) {
+	out := map[string][]byte{}
+	if len(uris) == 0 {
+		return out, nil
+	}
+	url := fmt.Sprintf("%s/api/runs/images/get-batch", c.baseURL)
+	bodyBytes, err := json.Marshal(uris)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling blob request: %w", err)
+	}
+	resp, err := c.httpClient.Post(url, "application/json", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("aim API unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("aim API returned %d resolving %d blob(s)", resp.StatusCode, len(uris))
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading blobs: %w", err)
+	}
+	entries, err := DecodeTree(raw)
+	if err != nil {
+		return nil, err
+	}
+	// The blob stream is a flat tree keyed by the uri itself.
+	for _, e := range entries {
+		if len(e.Path) != 1 {
+			continue
+		}
+		uri, ok := e.Path[0].(string)
+		if !ok {
+			continue
+		}
+		if b, ok := e.Value.([]byte); ok {
+			out[uri] = b
+		}
+	}
+	return out, nil
+}

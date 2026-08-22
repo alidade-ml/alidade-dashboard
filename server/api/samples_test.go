@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -515,19 +516,6 @@ func TestBatchKeepsAnEmptyInputDistinctFromAnAbsentOne(t *testing.T) {
 	}
 }
 
-func TestBatchRefusesAnImageBatch(t *testing.T) {
-	// Image records decode with empty Text and a populated BlobURI.
-	// Serving them would render every output as an empty string, which
-	// reads as a model that produced nothing. 03 serves images.
-	aim := fakeObjectAim(t, map[string]string{
-		"sample/faces/output": "images_get_batch.bin",
-	})
-	rr := callBatch(t, aim, "abc123", "faces")
-	if rr.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
 func TestBatchRejectsABadHashOrSet(t *testing.T) {
 	aim := textBatchAim(t)
 	for _, tc := range []struct{ hash, set string }{
@@ -559,5 +547,229 @@ func TestBatchWithNoSequencesIsEmptyNotNull(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), `"pairs":[]`) {
 		t.Errorf("pairs did not serialise as []: %s", rr.Body.String())
+	}
+}
+
+// --- images: metadata, then blobs (EXAMPLES-1.03) ---
+//
+// Contract:
+//   * The image sequence carries metadata and an opaque blob_uri. Pixels
+//     need a second POST to a REPO-level route with no run hash.
+//   * Blobs come back keyed by uri. Joining by request order is
+//     indistinguishable from correct with one image and wrong with two.
+//   * The uri is Aim's Fernet token. It goes back verbatim: never
+//     parsed, rebuilt or normalised.
+//   * Content-Type comes from the record's format, never from sniffing.
+
+func imageBatchAim(t *testing.T) *AimClient {
+	return fakeObjectAim(t, map[string]string{
+		"sample/faces/output": "images_get_batch.bin",
+	})
+}
+
+// blobURIsFromFixture returns the uris in the order the captured
+// sequence lists them.
+func blobURIsFromFixture(t *testing.T) []string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "images_blob_uris.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var uris []string
+	if err := json.Unmarshal(b, &uris); err != nil {
+		t.Fatal(err)
+	}
+	if len(uris) != 3 {
+		t.Fatalf("fixture has %d uris, want 3 — the order test needs at least 2", len(uris))
+	}
+	return uris
+}
+
+// fakeBlobAim serves the captured blob-batch body for any request.
+// requested records what the handler asked for.
+func fakeBlobAim(t *testing.T, requested *[]string) *AimClient {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/images/get-batch") {
+			http.NotFound(w, r)
+			return
+		}
+		var uris []string
+		_ = json.NewDecoder(r.Body).Decode(&uris)
+		if requested != nil {
+			*requested = append(*requested, uris...)
+		}
+		b, err := os.ReadFile(filepath.Join("testdata", "images_blobs_batch.bin"))
+		if err != nil {
+			t.Fatalf("fixture: %v", err)
+		}
+		_, _ = w.Write(b)
+	}))
+	t.Cleanup(srv.Close)
+	return NewAimClient(srv.URL)
+}
+
+func TestBlobsAreKeyedByURINotByRequestOrder(t *testing.T) {
+	// The test that needs more than one image. Asking for the uris in
+	// REVERSE order must still return each uri its own bytes; an
+	// implementation that zips the response against the request order
+	// passes with one image and silently swaps with two.
+	uris := blobURIsFromFixture(t)
+	aim := fakeBlobAim(t, nil)
+
+	forward, err := aim.GetBlobs(uris)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reversed := []string{uris[2], uris[1], uris[0]}
+	backward, err := aim.GetBlobs(reversed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range uris {
+		if len(forward[u]) == 0 {
+			t.Fatalf("uri %.20s… returned no bytes", u)
+		}
+		if string(forward[u]) != string(backward[u]) {
+			t.Errorf("uri %.20s… got different bytes depending on request order", u)
+		}
+	}
+	// And the three are not all the same blob, or the check above is vacuous.
+	if string(forward[uris[0]]) == string(forward[uris[1]]) {
+		t.Fatal("fixture blobs are identical; the ordering test proves nothing")
+	}
+}
+
+func TestBlobsAreRealImages(t *testing.T) {
+	uris := blobURIsFromFixture(t)
+	blobs, err := fakeBlobAim(t, nil).GetBlobs(uris)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range uris {
+		b := blobs[u]
+		if len(b) < 8 || string(b[:8]) != "\x89PNG\r\n\x1a\n" {
+			t.Errorf("uri %.20s… did not return a PNG: % x", u, b[:min(8, len(b))])
+		}
+	}
+}
+
+func TestBlobURIGoesBackToAimVerbatim(t *testing.T) {
+	// Fernet tokens contain '-', '_' and '=' padding. Any unescaping,
+	// re-encoding or normalisation on this side produces a token Aim
+	// cannot decrypt, and the failure is a broken image rather than an
+	// error.
+	uris := blobURIsFromFixture(t)
+	var requested []string
+	aim := fakeBlobAim(t, &requested)
+
+	h := NewHandler(aim, nil, nil)
+	req := httptest.NewRequest("GET", "/api/samples/blob?uri="+url.QueryEscape(uris[0]), nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(requested) != 1 {
+		t.Fatalf("expected exactly one uri sent to Aim, got %d", len(requested))
+	}
+	if requested[0] != uris[0] {
+		t.Errorf("uri was altered in transit:\n sent: %q\n want: %q", requested[0], uris[0])
+	}
+}
+
+func TestBlobContentTypeComesFromTheFormatNotSniffing(t *testing.T) {
+	uris := blobURIsFromFixture(t)
+	h := NewHandler(fakeBlobAim(t, nil), nil, nil)
+
+	req := httptest.NewRequest("GET", "/api/samples/blob?uri="+url.QueryEscape(uris[0])+"&format=png", nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+	if ct := rr.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", ct)
+	}
+
+	// A format outside the closed set is a disagreement between the
+	// batch and the request, not something to guess at.
+	req = httptest.NewRequest("GET", "/api/samples/blob?uri="+url.QueryEscape(uris[0])+"&format=tiff", nil)
+	rr = httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+	if rr.Code != 400 {
+		t.Errorf("expected 400 for an unsupported format, got %d", rr.Code)
+	}
+}
+
+func TestBlobMissingURIIsRejectedBeforeAnyRequest(t *testing.T) {
+	var requested []string
+	h := NewHandler(fakeBlobAim(t, &requested), nil, nil)
+	req := httptest.NewRequest("GET", "/api/samples/blob", nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+
+	if rr.Code != 400 {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+	if len(requested) != 0 {
+		t.Errorf("a request left the hub for a missing uri: %v", requested)
+	}
+}
+
+func TestBlobUnknownURIIs404NotAnEmpty200(t *testing.T) {
+	// An empty 200 renders as a blank image; a 404 renders as a broken
+	// one. Broken is honest.
+	h := NewHandler(fakeBlobAim(t, nil), nil, nil)
+	req := httptest.NewRequest("GET", "/api/samples/blob?uri=not-a-real-token", nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+	if rr.Code != 404 {
+		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestBlobUnreachableAimIs502(t *testing.T) {
+	h := NewHandler(NewAimClient("http://127.0.0.1:1"), nil, nil)
+	req := httptest.NewRequest("GET", "/api/samples/blob?uri=x", nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+	if rr.Code != 502 {
+		t.Fatalf("expected 502, got %d", rr.Code)
+	}
+}
+
+func TestAnImageBatchCarriesURIsAndKindImage(t *testing.T) {
+	rr := callBatch(t, imageBatchAim(t), "abc123", "faces")
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var b SampleBatch
+	if err := json.NewDecoder(rr.Body).Decode(&b); err != nil {
+		t.Fatal(err)
+	}
+	if b.Kind != "image" {
+		t.Errorf("kind = %q, want image", b.Kind)
+	}
+	if len(b.Pairs) != 3 {
+		t.Fatalf("got %d pairs, want 3", len(b.Pairs))
+	}
+	for _, p := range b.Pairs {
+		if p.OutputURI == nil || *p.OutputURI == "" {
+			t.Errorf("step %d has no output_uri", p.Step)
+		}
+		if p.OutputText != nil {
+			t.Errorf("step %d has output_text on an image batch: %q", p.Step, *p.OutputText)
+		}
+	}
+}
+
+func TestAnImageBatchCarriesNoPixelBytes(t *testing.T) {
+	// The batch route hands back names so a tab can lay out its grid
+	// before pulling megabytes. Bytes come from the blob route.
+	rr := callBatch(t, imageBatchAim(t), "abc123", "faces")
+	if strings.Contains(rr.Body.String(), "\x89PNG") {
+		t.Error("the batch response carried image bytes")
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q", ct)
 	}
 }

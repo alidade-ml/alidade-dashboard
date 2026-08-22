@@ -267,35 +267,59 @@ func (h *Handler) HandleSampleBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inputs, err := h.aim.GetTextSequence(aimRunHash, SampleSeqPrefix+sampleSet+"/input")
+	// Each half is fetched twice — once as text, once as images — because
+	// nothing on the run says which it is, and the two halves can differ:
+	// a prompt-to-image batch has a text input and an image output. Asking
+	// the wrong route returns an empty sequence rather than an error, so
+	// the populated one wins.
+	inputs, err := h.sequenceEitherWay(aimRunHash, sampleSet, "input")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	outputs, err := h.aim.GetTextSequence(aimRunHash, SampleSeqPrefix+sampleSet+"/output")
+	outputs, err := h.sequenceEitherWay(aimRunHash, sampleSet, "output")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 
-	// An image batch decodes with empty Text and a populated BlobURI.
-	// Serving it would render every output as an empty string, which
-	// looks like a model that produced nothing.
-	for _, rec := range append(append([]ObjectRecord{}, inputs.Records...), outputs.Records...) {
+	// kind describes the OUTPUT, not the input. A prompt-to-image batch
+	// is "image" with input_text set — the asymmetry that has already
+	// caused bugs on both sides of this contract.
+	kind := "text"
+	for _, rec := range outputs.Records {
 		if rec.BlobURI != "" {
-			http.Error(w, "this batch contains images; image payloads are not served yet",
-				http.StatusNotImplemented)
-			return
+			kind = "image"
+			break
 		}
 	}
 
 	batch := SampleBatch{
 		AimRunHash: aimRunHash,
 		SampleSet:  sampleSet,
-		Kind:       "text",
+		Kind:       kind,
 		Pairs:      joinByStep(inputs, outputs),
 	}
 	writeJSON(w, batch)
+}
+
+// sequenceEitherWay returns whichever of the text and image sequences
+// for this role actually has records.
+//
+// A run carries no marker saying which payload a set used, and asking
+// the wrong route is not an error — it returns an empty sequence. So
+// both are asked and the populated one is returned. If both are empty
+// the set was never logged, which is a valid answer.
+func (h *Handler) sequenceEitherWay(aimRunHash, sampleSet, role string) (*ObjectSequence, error) {
+	name := SampleSeqPrefix + sampleSet + "/" + role
+	text, err := h.aim.GetTextSequence(aimRunHash, name)
+	if err != nil {
+		return nil, err
+	}
+	if len(text.Records) > 0 {
+		return text, nil
+	}
+	return h.aim.GetImageSequence(aimRunHash, name)
 }
 
 // joinByStep pairs the two sequences on their step, not their position.
@@ -316,12 +340,22 @@ func joinByStep(inputs, outputs *ObjectSequence) []SamplePair {
 		seen[step] = true
 		p := SamplePair{Step: step}
 		if rec, ok := inputs.At(step); ok {
-			text := rec.Text
-			p.InputText = &text
+			if rec.BlobURI != "" {
+				uri := rec.BlobURI
+				p.InputURI = &uri
+			} else {
+				text := rec.Text
+				p.InputText = &text
+			}
 		}
 		if rec, ok := outputs.At(step); ok {
-			text := rec.Text
-			p.OutputText = &text
+			if rec.BlobURI != "" {
+				uri := rec.BlobURI
+				p.OutputURI = &uri
+			} else {
+				text := rec.Text
+				p.OutputText = &text
+			}
 		}
 		pairs = append(pairs, p)
 	}
@@ -333,4 +367,61 @@ func joinByStep(inputs, outputs *ObjectSequence) []SamplePair {
 	}
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i].Step < pairs[j].Step })
 	return pairs
+}
+
+// HandleSampleBlob streams the bytes for one image.
+//
+// GET /api/samples/blob?uri=<aim-blob-uri>
+//
+// The uri arrives from a batch response and goes back to Aim verbatim.
+// It is an opaque Fernet-encrypted token: this handler does not decode
+// it, does not validate its shape, and must never construct one.
+func (h *Handler) HandleSampleBlob(w http.ResponseWriter, r *http.Request) {
+	uri := r.URL.Query().Get("uri")
+	if uri == "" {
+		http.Error(w, "missing uri", http.StatusBadRequest)
+		return
+	}
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "png"
+	}
+	contentType, ok := imageContentTypes[format]
+	if !ok {
+		// Refused rather than sniffed. The sequence record states the
+		// format, so a value outside this set means the batch and the
+		// request disagree, and http.DetectContentType would paper over
+		// that with application/octet-stream.
+		http.Error(w, "unsupported image format "+format, http.StatusBadRequest)
+		return
+	}
+
+	blobs, err := h.aim.GetBlobs([]string{uri})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	// Keyed by uri, never by position — see GetBlobs.
+	data, ok := blobs[uri]
+	if !ok || len(data) == 0 {
+		// Aim knows the route but not this uri. A 404 renders as a
+		// broken image, which is honest; an empty 200 renders as a
+		// blank one, which is not.
+		http.Error(w, "blob not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	_, _ = w.Write(data)
+}
+
+// imageContentTypes are the formats aim.Image produces. Deliberately a
+// closed set: an unknown format is a disagreement between the batch and
+// the request, not something to guess at.
+var imageContentTypes = map[string]string{
+	"png":  "image/png",
+	"jpg":  "image/jpeg",
+	"jpeg": "image/jpeg",
+	"gif":  "image/gif",
+	"webp": "image/webp",
 }
