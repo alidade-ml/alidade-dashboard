@@ -416,6 +416,13 @@ func (h *Handler) HandleExperimentRuns(w http.ResponseWriter, r *http.Request) {
 					// model is a row, and may live elsewhere.
 					results <- result{index: idx, evaluates: tags.ModelRunHash}
 					return
+				case "sample":
+					// Not a row either — the Examples tab renders it, and
+					// its model is the row. Missing from this switch until
+					// RUNKIND-1: eval and metadata were handled when they
+					// were introduced, sample was not.
+					results <- result{index: idx}
+					return
 				case "metadata":
 					// Engine-written cost run; carries no metrics.
 					results <- result{index: idx}
@@ -607,72 +614,76 @@ func (h *Handler) HandleExperimentIncludes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	aimByExp, byHash, byRunName := h.aimRunIndex()
-
+	// One query per include, rather than an index of the whole project
+	// built once and thrown away. `aimRunIndex` stays for the two
+	// endpoints whose response IS every run — see RUNSET-1.02.
 	resolved := make([]IncludeEntry, 0, len(includeNames))
 	for _, incName := range includeNames {
-		resolved = append(resolved, resolveInclude(incName, aimByExp, byHash, byRunName))
+		resolved = append(resolved, h.resolveIncludeByQuery(incName))
 	}
 
 	writeJSON(w, map[string]interface{}{"includes": resolved})
 }
 
-// resolveInclude applies the four-step resolution order to a single
-// include identifier. Pure function over the indexes built by
-// aimRunIndex — easy to unit-test without a real Aim instance.
-func resolveInclude(
-	incName string,
-	byAimExperiment map[string][]RunSummary,
-	byHash map[string]RunSummary,
-	byRunName map[string][]RunSummary,
-) IncludeEntry {
+// resolveIncludeByQuery applies the four-shape resolution order using
+// Aim's search endpoint instead of an index of the whole project.
+//
+// The shapes, and what each costs now:
+//
+//	hash        one query, exact
+//	experiment  one query, exact
+//	run name    one query, then a sort here — Aim can filter on
+//	            run.name but cannot do "most recent matching", so the
+//	            newest-only rule stays client-side over a handful of
+//	            rows rather than over every run in the project
+//	unknown     no query at all
+//
+// Errors resolve to unknown rather than propagating. An include that
+// cannot be resolved already has a rendering — the struck-out chip — and
+// failing the whole endpoint because one spec is unresolvable would hide
+// the others.
+func (h *Handler) resolveIncludeByQuery(incName string) IncludeEntry {
 	entry := IncludeEntry{Name: incName, Type: "unknown", Runs: []string{}}
 
-	// 1. Hash — strict hex check, ≥16 chars to avoid colliding with
-	// short hex-shaped experiment names. Aim hashes are 24+ in
-	// practice; the 16-char floor leaves headroom without forcing the
-	// caller to type the full hash.
+	// 1. Hash — strict hex check, >=16 chars to avoid colliding with
+	// short hex-shaped experiment names.
 	if isHashLike(incName) {
-		if rs, ok := byHash[incName]; ok {
+		info, err := h.aim.GetRunInfo(incName)
+		if err == nil {
 			entry.Type = "hash"
-			entry.Runs = []string{rs.Hash}
-			// Surface the run's meaningful name to the frontend so the
-			// comparison panel chip reads "bert-tiny" instead of the
-			// 24-char hash. Without this, hash-resolved includes were
-			// the only resolved type whose display name was the input
-			// identifier (experiment + run-name include kinds use a
-			// human-readable input directly; hash inputs need the
-			// lookup to recover one).
-			if rs.Name != "" {
-				entry.Name = rs.Name
+			entry.Runs = []string{incName}
+			// Surface the run's meaningful name so the chip reads
+			// "bert-tiny" rather than a 24-char hash.
+			// Aim's placeholder ("Run: <hash>") carries no information,
+			// so it is left as the hash rather than shown as a name.
+			if n := info.Props.Name; n != "" && !strings.HasPrefix(n, "Run: ") {
+				entry.Name = n
 			}
 			return entry
 		}
-		// Hash-shaped but not found — fall through to other resolvers
-		// in case a future Aim layout changes the hash shape. Today
-		// nothing else matches a hex-shaped string, so this falls
-		// straight through to "unknown".
+		// Hash-shaped but unknown to Aim — fall through, as before.
 	}
 
 	// 2. Aim experiment name — exact match, multi-run.
-	if runs, ok := byAimExperiment[incName]; ok && len(runs) > 0 {
+	if runs, err := h.aim.SearchRuns(QueryByExperiment(incName)); err == nil && len(runs) > 0 {
 		entry.Type = "experiment"
 		entry.Runs = make([]string, 0, len(runs))
 		for _, r := range runs {
+			if r.Archived {
+				continue
+			}
 			entry.Runs = append(entry.Runs, r.Hash)
 		}
-		return entry
+		if len(entry.Runs) > 0 {
+			return entry
+		}
 	}
 
-	// 3. Run name — exact match across all experiments, narrowed to
-	// the SINGLE most recent matching run. The same run.name often
-	// appears across many experiments (e.g. "astrolabe_test" is the
-	// inner training name for several different experiment configs);
-	// pulling every match flooded the comparison set with versions
-	// the user didn't ask for. Researchers who want wider scope use
-	// the experiment-name path (--include=<exp>) or paste specific
-	// hashes.
-	if runs, ok := byRunName[incName]; ok && len(runs) > 0 {
+	// 3. Run name — narrowed to the SINGLE most recent match across all
+	// experiments. The same run.name commonly appears in many
+	// experiments (e.g. "astrolabe_test" is the inner training name for
+	// several configs); pulling every match flooded the comparison set.
+	if runs, err := h.aim.SearchRuns(QueryByRunName(incName)); err == nil && len(runs) > 0 {
 		latest := runs[0]
 		for _, r := range runs[1:] {
 			if r.CreationTime > latest.CreationTime {
@@ -684,16 +695,11 @@ func resolveInclude(
 		return entry
 	}
 
-	// 4. No match. Empty Runs, type="unknown" — frontend renders as
-	// a struck-out unresolved chip so the operator sees the dropped
-	// include rather than wondering why their compare set is short.
+	// 4. No match. Empty Runs, type="unknown" — the frontend renders a
+	// struck-out chip so the operator sees the dropped include.
 	return entry
 }
 
-// isHashLike returns true if s looks like an Aim run hash: lowercase
-// hex, ≥16 chars. Conservative threshold so a researcher with an
-// experiment literally named "abc123" doesn't get it interpreted as a
-// (non-existent) hash.
 func isHashLike(s string) bool {
 	if len(s) < 16 {
 		return false
@@ -851,100 +857,57 @@ func (h *Handler) HandleRunEvals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	experiments, err := h.aim.ListExperiments()
+	// One query instead of enumerating every run in the project and
+	// reading each one's params. Cross-experiment on purpose: a model
+	// evaluated by one experiment can have been produced by another, and
+	// RunDetail carries a field to say so. In local-aim mode the sidecar
+	// stamps synced eval runs with the *training* experiment name rather
+	// than eval/<task_set>, so anything keyed on the experiment would
+	// silently drop them. The tag is the source of truth.
+	runs, err := h.aim.SearchRuns(QueryByTags(map[string]string{
+		TagKind:         "eval",
+		TagModelRunHash: modelRunHash,
+	}))
 	if err != nil {
+		// 502 rather than an empty list. An empty list reads as "this run
+		// has no evals", which is a plausible and wrong answer.
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 
-	// Collect candidate run-hash + creation-time pairs first (cheap),
-	// then fan out the GetRunInfo calls in parallel — same pattern as
-	// aimRunIndex. One GetRunInfo per candidate is unavoidable since
-	// the tags live in params.
-	//
-	// No pre-filter on experiment name: eval discovery is tag-based per
-	// plans/eval-runs.md. In local-aim mode the sidecar's experiment
-	// association stamps synced eval runs with the *training*
-	// experiment name (not eval/<task_set>), so an experiment-name
-	// pre-filter would silently drop them. The tag check below is the
-	// source of truth.
-	type candidate struct {
-		hash         string
-		creationTime float64
-	}
-	var candidates []candidate
-	for _, exp := range experiments {
-		if exp.RunCount == 0 || exp.Archived {
+	entries := make([]EvalManifestEntry, 0, len(runs))
+	for _, run := range runs {
+		if run.Archived {
 			continue
 		}
-		expRuns, err := h.aim.ListExperimentRuns(exp.ID)
-		if err != nil {
+		tags := AstrolabeTagsFromParams(run.Params)
+		// Re-check what the query asked for. The query is the
+		// optimisation; this is the correctness. Aim's query semantics
+		// are not ours to assume, and a mismatch would put another
+		// model's evals on this run's tab.
+		if tags.Kind != "eval" || tags.ModelRunHash != modelRunHash {
 			continue
 		}
-		for _, ar := range expRuns.Runs {
-			if ar.Archived {
-				continue
-			}
-			candidates = append(candidates, candidate{
-				hash:         ar.RunID,
-				creationTime: ar.CreationTime,
-			})
-		}
+		entries = append(entries, EvalManifestEntry{
+			AimRunHash:   run.Hash,
+			TaskSet:      tags.TaskSet,
+			CreationTime: run.CreationTime,
+		})
 	}
-
-	type indexed struct {
-		i  int
-		e  EvalManifestEntry
-		ok bool
-	}
-	results := make(chan indexed, len(candidates))
-	var wg sync.WaitGroup
-	for i, c := range candidates {
-		wg.Add(1)
-		go func(i int, c candidate) {
-			defer wg.Done()
-			info, err := h.aim.GetRunInfo(c.hash)
-			if err != nil {
-				results <- indexed{i: i, ok: false}
-				return
-			}
-			tags := AstrolabeTagsFromParams(info.Params)
-			if tags.Kind != "eval" || tags.ModelRunHash != modelRunHash {
-				results <- indexed{i: i, ok: false}
-				return
-			}
-			results <- indexed{
-				i: i,
-				e: EvalManifestEntry{
-					AimRunHash:   c.hash,
-					TaskSet:      tags.TaskSet,
-					CreationTime: c.creationTime,
-				},
-				ok: true,
-			}
-		}(i, c)
-	}
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
 
 	// Dedup by task_set keeping newest creation_time. Re-running an
 	// eval mints a new Aim run with the same tags; this is the plan's
 	// re-eval policy ("latest wins, older stays for forensics").
 	newestByTaskSet := map[string]EvalManifestEntry{}
-	for r := range results {
-		if !r.ok {
-			continue
-		}
+	for _, e := range entries {
 		// task_set must be non-empty — without it the section can't be
 		// labeled. Drop rather than show a blank section.
-		if r.e.TaskSet == "" {
+		if e.TaskSet == "" {
 			continue
 		}
-		if existing, found := newestByTaskSet[r.e.TaskSet]; !found ||
-			r.e.CreationTime > existing.CreationTime {
-			newestByTaskSet[r.e.TaskSet] = r.e
+		if existing, found := newestByTaskSet[e.TaskSet]; !found ||
+			e.CreationTime > existing.CreationTime {
+			newestByTaskSet[e.TaskSet] = e
 		}
 	}
 

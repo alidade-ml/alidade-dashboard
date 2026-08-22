@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"sort"
 	"strings"
 	"time"
@@ -232,19 +233,19 @@ func AstrolabeTagsFromParams(params map[string]interface{}) AstrolabeTags {
 	}
 	tags := AstrolabeTags{
 		Version:        stringFromAny(params["astrolabe.version"]),
-		SubmitID:       stringFromAny(params["astrolabe.submit_id"]),
-		ExperimentName: stringFromAny(params["astrolabe.experiment"]),
+		SubmitID:       stringFromAny(params[TagSubmitID]),
+		ExperimentName: stringFromAny(params[TagExperiment]),
 		SubmittedBy:    stringFromAny(params["astrolabe.user"]),
 		GPUType:        stringFromAny(params["astrolabe.gpu_type"]),
 		Outcome:        stringFromAny(params["astrolabe.outcome"]),
-		Kind:           stringFromAny(params["astrolabe.kind"]),
+		Kind:           stringFromAny(params[TagKind]),
 		Repo:           stringFromAny(params["astrolabe.repo"]),
 		Backend:        stringFromAny(params["astrolabe.backend"]),
 		StartedAtISO:   stringFromAny(params["astrolabe.started_at_iso"]),
 		FinishedAtISO:  stringFromAny(params["astrolabe.finished_at_iso"]),
-		TaskSet:        stringFromAny(params["astrolabe.task_set"]),
-		ModelRunHash:   stringFromAny(params["astrolabe.model_run_hash"]),
-		SampleSet:      stringFromAny(params["astrolabe.sample_set"]),
+		TaskSet:        stringFromAny(params[TagTaskSet]),
+		ModelRunHash:   stringFromAny(params[TagModelRunHash]),
+		SampleSet:      stringFromAny(params[TagSampleSet]),
 	}
 	if r := intFromAny(params["astrolabe.gpu_rate_cents_per_hour"]); r != nil {
 		tags.GPURateCentsPerHour = r
@@ -583,4 +584,280 @@ func ParseObjectSequence(body []byte) (*ObjectSequence, error) {
 		seq.Records = append(seq.Records, *byIndex[i])
 	}
 	return seq, nil
+}
+
+// GetBlobs resolves image blob URIs to bytes.
+//
+// Repo-level route with NO run hash in the path: Aim registers it once
+// per sequence type whose config sets resolve_blobs=False, which is
+// Images and Audios. The uri is Aim's own opaque token (a Fernet-
+// encrypted resource path); it is passed through verbatim and must
+// never be parsed, rebuilt or normalised on this side — only Aim can
+// mint one, and a hub-side reconstruction would appear to work against
+// today's Aim and break silently on any upgrade.
+//
+// Batched because the route is batched, and keyed by uri in the
+// response. Callers must look up by uri and never zip the result
+// against request order: with one image the two are indistinguishable,
+// and with two they are not.
+func (c *AimClient) GetBlobs(uris []string) (map[string][]byte, error) {
+	out := map[string][]byte{}
+	if len(uris) == 0 {
+		return out, nil
+	}
+	url := fmt.Sprintf("%s/api/runs/images/get-batch", c.baseURL)
+	bodyBytes, err := json.Marshal(uris)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling blob request: %w", err)
+	}
+	resp, err := c.httpClient.Post(url, "application/json", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("aim API unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("aim API returned %d resolving %d blob(s)", resp.StatusCode, len(uris))
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading blobs: %w", err)
+	}
+	entries, err := DecodeTree(raw)
+	if err != nil {
+		return nil, err
+	}
+	// The blob stream is a flat tree keyed by the uri itself.
+	for _, e := range entries {
+		if len(e.Path) != 1 {
+			continue
+		}
+		uri, ok := e.Path[0].(string)
+		if !ok {
+			continue
+		}
+		if b, ok := e.Value.([]byte); ok {
+			out[uri] = b
+		}
+	}
+	return out, nil
+}
+
+// --- Asking Aim, instead of walking it ---
+//
+// Three handlers in this package used to enumerate every run in the
+// project and filter in Go, because nobody had checked whether Aim could
+// be asked. It can: /api/runs/search/run/ is the endpoint Aim's own UI
+// uses to filter interactively, it composes, and it returns the same
+// encoded tree the object routes do — so DecodeTree handles it unchanged.
+
+// Param keys the hub queries on. Named constants rather than literals at
+// call sites so a query is built from the same string the param reader
+// uses, and so contract_test.go has one place to check.
+const (
+	TagKind         = "astrolabe.kind"
+	TagModelRunHash = "astrolabe.model_run_hash"
+	TagSampleSet    = "astrolabe.sample_set"
+	TagTaskSet      = "astrolabe.task_set"
+	TagSubmitID     = "astrolabe.submit_id"
+	TagExperiment   = "astrolabe.experiment"
+)
+
+// SearchedRun is one run from a search.
+//
+// Deliberately not the whole tree: a search returns everything about a
+// run and the callers here read a handful of fields.
+type SearchedRun struct {
+	Hash           string
+	Name           string
+	ExperimentName string
+	CreationTime   float64
+	EndTime        float64
+	Archived       bool
+	Params         map[string]any
+}
+
+// QueryByTag builds `run['<tag>'] == '<value>'`.
+//
+// A constructor rather than a formatted string at each call site, so the
+// tag comes from the constants this package already declares and a
+// rename is a compile error instead of a silently empty result.
+func QueryByTag(tag, value string) string {
+	return fmt.Sprintf("run[%s] == %s", quoteAimLiteral(tag), quoteAimLiteral(value))
+}
+
+// QueryByTags joins several tag equalities with `and`.
+func QueryByTags(pairs map[string]string) string {
+	terms := make([]string, 0, len(pairs))
+	for tag, value := range pairs {
+		terms = append(terms, QueryByTag(tag, value))
+	}
+	// Sorted so the query string is deterministic — a map's iteration
+	// order would make two identical requests look different to a cache
+	// or a test.
+	sort.Strings(terms)
+	return strings.Join(terms, " and ")
+}
+
+// QueryByExperiment builds `run.experiment == '<name>'`.
+func QueryByExperiment(name string) string {
+	return "run.experiment == " + quoteAimLiteral(name)
+}
+
+// quoteAimLiteral renders a Go string as a single-quoted literal in Aim's
+// query language.
+//
+// The expression is evaluated server-side by RestrictedPython. An
+// experiment name is user-supplied, and one containing a quote would
+// either break the query or change what it asks. The engine's validation
+// gate happens to forbid quotes today, but this must not depend on a rule
+// enforced in another repo.
+func quoteAimLiteral(s string) string {
+	var b strings.Builder
+	b.WriteByte('\'')
+	for _, r := range s {
+		switch r {
+		case '\'', '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('\'')
+	return b.String()
+}
+
+// SearchRuns asks Aim which runs match a query.
+//
+// q is Aim's own query language — build it with QueryByTag and friends
+// rather than by hand:
+//
+//	run['astrolabe.kind'] == 'sample'
+//	run.experiment == 'my-experiment'
+//
+// An empty result means no run matched, which is a real answer. It is
+// returned as an empty slice, never as "everything" — a filter that
+// silently falls back to the whole project is the failure that would make
+// this worse than the walk it replaces.
+func (c *AimClient) SearchRuns(q string) ([]SearchedRun, error) {
+	url := fmt.Sprintf("%s/api/runs/search/run/?q=%s", c.baseURL, neturl.QueryEscape(q))
+	resp, err := c.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("aim API unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		// Naming the query matters: a 400 here is a syntax error in an
+		// expression this package built, and the message is the only way
+		// to find which builder produced it.
+		return nil, fmt.Errorf("aim search returned %d for query %q: %s",
+			resp.StatusCode, q, strings.TrimSpace(string(body)))
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading search response: %w", err)
+	}
+	return ParseSearchedRuns(raw)
+}
+
+// ParseSearchedRuns decodes a search response body.
+//
+// Exported so tests can run it over a captured response with no server.
+func ParseSearchedRuns(body []byte) ([]SearchedRun, error) {
+	entries, err := DecodeTree(body)
+	if err != nil {
+		return nil, err
+	}
+
+	byHash := map[string]*SearchedRun{}
+	var order []string
+
+	for _, e := range entries {
+		if len(e.Path) < 2 {
+			continue
+		}
+		hash, ok := e.Path[0].(string)
+		if !ok || isProgressKey(hash) {
+			continue
+		}
+		run, seen := byHash[hash]
+		if !seen {
+			run = &SearchedRun{Hash: hash, Params: map[string]any{}}
+			byHash[hash] = run
+			order = append(order, hash)
+		}
+
+		section, _ := e.Path[1].(string)
+		switch section {
+		case "props":
+			if len(e.Path) < 3 {
+				continue
+			}
+			field, _ := e.Path[2].(string)
+			switch field {
+			case "name":
+				if s, ok := e.Value.(string); ok {
+					run.Name = s
+				}
+			case "archived":
+				if b, ok := e.Value.(bool); ok {
+					run.Archived = b
+				}
+			case "creation_time":
+				if f, ok := e.Value.(float64); ok {
+					run.CreationTime = f
+				}
+			case "end_time":
+				if f, ok := e.Value.(float64); ok {
+					run.EndTime = f
+				}
+			case "experiment":
+				// props/experiment/name — one level deeper than the rest.
+				if len(e.Path) == 4 {
+					if key, _ := e.Path[3].(string); key == "name" {
+						if s, ok := e.Value.(string); ok {
+							run.ExperimentName = s
+						}
+					}
+				}
+			}
+		case "params":
+			if len(e.Path) != 3 {
+				continue
+			}
+			if key, ok := e.Path[2].(string); ok {
+				run.Params[key] = e.Value
+			}
+		}
+	}
+
+	out := make([]SearchedRun, 0, len(order))
+	for _, h := range order {
+		out = append(out, *byHash[h])
+	}
+	return out, nil
+}
+
+// isProgressKey reports whether a top-level key is streaming bookkeeping
+// rather than a run.
+//
+// The response interleaves keys named progress_0, progress_1 … as it
+// streams. Measured: four of them alongside three real runs. Treating
+// them as runs puts phantom entries in every caller's result, and they
+// look plausible enough to survive review.
+func isProgressKey(key string) bool {
+	return strings.HasPrefix(key, "progress_")
+}
+
+// QueryByRunName builds `run.name == '<name>'`.
+//
+// Aim can filter on the name; it cannot do "the most recent one", so a
+// caller wanting newest-only sorts the result itself.
+func QueryByRunName(name string) string {
+	return "run.name == " + quoteAimLiteral(name)
 }

@@ -24,7 +24,7 @@
  * are canvas-drawn from a seed. The grouping, which is the part under test,
  * runs on data shaped exactly like the producer writes.
  */
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { SampleGroupingPanel } from "@/components/sample-grouping-panel";
 import {
@@ -129,6 +129,58 @@ function SampleTile({ seed, noisy, size = 104 }: { seed: number; noisy?: boolean
   );
 }
 
+/**
+ * One image cell.
+ *
+ * `src` is a real sample served by the hub; `seed` is the workbench's
+ * canvas drawing. They are alternatives, not a fallback chain — a real
+ * image that fails to load must show as broken rather than quietly
+ * substituting generated art, because a plausible wrong picture is worse
+ * than a visibly missing one.
+ */
+function SampleImage({
+  src,
+  seed,
+  noisy,
+  size = 96,
+  alt,
+}: {
+  src?: string;
+  seed?: number;
+  noisy?: boolean;
+  size?: number;
+  alt: string;
+}) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        // Native lazy loading: a grid can hold dozens of images and each
+        // is its own request to Aim. Off-screen cells cost nothing until
+        // they are scrolled to.
+        loading="lazy"
+        decoding="async"
+        className="block w-full rounded border border-border bg-muted object-contain"
+        style={{ maxWidth: size, aspectRatio: "1 / 1", height: "auto" }}
+      />
+    );
+  }
+  if (seed === undefined) return null;
+  return <SampleTile seed={seed} noisy={noisy} size={size} />;
+}
+
+/** An image input is either a real URL or a workbench seed. Both call
+ *  sites used to test the seed alone, which silently hid every real
+ *  image the moment the tab stopped being fixture-driven. */
+function hasInputImage(row: SampleRow): boolean {
+  return row.inputUrl !== undefined || row.inputSeed !== undefined;
+}
+
+function hasOutputImage(row: SampleRow): boolean {
+  return row.outputUrl !== undefined || row.outputSeed !== undefined;
+}
+
 function ModelSwatch({ model }: { model: string }) {
   return (
     <span
@@ -154,7 +206,7 @@ function SampleCard({
     <div className="flex flex-col gap-1.5">
       {/* A text input the card owns reads above the output, as the question
           the output answers — not appended underneath as another chip. */}
-      {showInput && row.inputSeed === undefined && row.input && (
+      {showInput && !hasInputImage(row) && row.input && (
         <p className="border-l-2 border-border pl-2 text-xs leading-snug text-muted-foreground">
           {row.input}
         </p>
@@ -163,12 +215,18 @@ function SampleCard({
         {/* An image input needs saying so. Two tiles side by side with no
             labels leaves the reader guessing which one the model produced,
             which is the one thing this tab exists to show. */}
-        {showInput && row.inputSeed !== undefined && (
+        {showInput && hasInputImage(row) && (
           <span className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
               in
             </span>
-            <SampleTile seed={row.inputSeed} noisy size={96} />
+            <SampleImage
+              src={row.inputUrl}
+              seed={row.inputSeed}
+              noisy
+              size={96}
+              alt={`input at step ${row.step}`}
+            />
           </span>
         )}
         {row.output !== undefined ? (
@@ -176,14 +234,19 @@ function SampleCard({
             {row.output}
           </p>
         ) : (
-          row.outputSeed !== undefined && (
+          hasOutputImage(row) && (
             <span className="flex min-w-0 flex-1 flex-col gap-1">
-              {showInput && row.inputSeed !== undefined && (
+              {showInput && hasInputImage(row) && (
                 <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
                   out
                 </span>
               )}
-              <SampleTile seed={row.outputSeed} size={96} />
+              <SampleImage
+                src={row.outputUrl}
+                seed={row.outputSeed}
+                size={96}
+                alt={`output at step ${row.step}`}
+              />
             </span>
           )
         )}
@@ -218,15 +281,15 @@ function Heading({
     <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
       {crumbs.map((c, i) => {
         const last = i === crumbs.length - 1;
-        const inputSeed =
-          c.dim === "input"
-            ? rows?.find((r) => dimensionValue(r, "input") === c.value)?.inputSeed
-            : undefined;
+        const thumb =
+          c.dim === "input" ? rows?.find((r) => dimensionValue(r, "input") === c.value) : undefined;
         return (
           <span key={`${c.dim}:${c.value}`} className="flex items-center gap-1.5">
             {i > 0 && <span className="text-muted-foreground/60">›</span>}
             {c.dim === "model" && <ModelSwatch model={c.value} />}
-            {inputSeed !== undefined && <SampleTile seed={inputSeed} noisy size={40} />}
+            {thumb && hasInputImage(thumb) && (
+              <SampleImage src={thumb.inputUrl} seed={thumb.inputSeed} noisy size={40} alt="" />
+            )}
             <span
               className={cn(
                 "truncate",
@@ -285,8 +348,9 @@ function InputThumb({
   rows: SampleRow[];
   size?: number;
 }) {
-  const seed = rows.find((r) => dimensionValue(r, "input") === value)?.inputSeed;
-  return seed === undefined ? null : <SampleTile seed={seed} noisy size={size} />;
+  const row = rows.find((r) => dimensionValue(r, "input") === value);
+  if (!row || !hasInputImage(row)) return null;
+  return <SampleImage src={row.inputUrl} seed={row.inputSeed} noisy size={size} alt="" />;
 }
 
 function ColumnHeader({
@@ -431,79 +495,43 @@ function SectionView({ section, depth }: { section: PlannedSection; depth: numbe
  *  later is a prop swap. It is not reused directly here because RunsPanel
  *  takes twelve props of comparison-modal and version-chip state that this
  *  route has no business faking. */
-function ModelLegend({
-  models,
-  hidden,
-  onToggle,
-  onShowAll,
-}: {
-  models: string[];
-  hidden: Set<string>;
-  onToggle: (model: string) => void;
-  onShowAll: () => void;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card">
-      <header className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-foreground">Models</h2>
-        {hidden.size > 0 && (
-          <button
-            type="button"
-            onClick={onShowAll}
-            className="ml-auto text-[10px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            show all
-          </button>
-        )}
-      </header>
-      <ul className="flex flex-col p-1.5">
-        {models.map((model) => {
-          const off = hidden.has(model);
-          return (
-            <li key={model}>
-              <button
-                type="button"
-                onClick={() => onToggle(model)}
-                aria-pressed={!off}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors",
-                  "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  off && "opacity-45",
-                )}
-              >
-                <span
-                  className={cn("h-2.5 w-2.5 shrink-0 rounded-sm border", off && "bg-transparent!")}
-                  style={{
-                    background: MODEL_COLORS[model],
-                    borderColor: MODEL_COLORS[model],
-                  }}
-                />
-                <span className="min-w-0 flex-1 truncate text-xs text-foreground">{model}</span>
-                <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                  {MODEL_HASHES[model]?.slice(0, 8)}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
 
 // ------------------------------------------------------------------ tab
 
-export function SamplesTab() {
+interface SamplesViewProps {
+  /** Every row to render. The caller decides where they came from. */
+  rows: SampleRow[];
+  /** Extra sidebar content — the workbench's fixture dials. Absent on
+   *  the real tab, which has nothing to dial. */
+  controls?: ReactNode;
+  /** Rendered instead of the grid when there is nothing to show. */
+  empty?: ReactNode;
+  /** Shown above the grid while the first fetch is in flight. */
+  loading?: boolean;
+  error?: string | null;
+  /** Chrome-free: the real tab already sits inside the experiment page's
+   *  heading and padding. */
+  bare?: boolean;
+}
+
+/**
+ * The renderer. Knows nothing about where rows come from — that split is
+ * the reason the read-path rework did not touch this file's layout logic
+ * at all.
+ */
+export function SamplesView({
+  rows: allRows,
+  controls,
+  empty,
+  loading,
+  error,
+  bare,
+}: SamplesViewProps) {
   const [view, setView] = useState<SampleView>(() => viewFor(VIEWS[0]));
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const [shape, setShape] = useState<FixtureShape>(DEFAULT_SHAPE);
 
-  // Generated rather than hand-written, so the dials in the panel change what
-  // the layouts have to survive.
-  const allRows = useMemo(() => generateSamples(shape), [shape]);
-
-  const models = useMemo(() => distinct(allRows, "model"), [allRows]);
-  const rows = useMemo(() => allRows.filter((r) => !hidden.has(r.model)), [allRows, hidden]);
+  // Filtering by model happens upstream now: the caller passes only the
+  // runs the shared panel has left visible.
+  const rows = allRows;
 
   // Every layout decision happens here, in one testable place. The components
   // below render the result and decide nothing — see sample-grouping.test.ts,
@@ -516,38 +544,68 @@ export function SamplesTab() {
       ? order
           .slice(0, fold)
           .map((d) => DIMENSION_LABELS[d].toLowerCase())
-          .join(" › ")
+          .join(" \u203a ")
       : null,
     fold < order.length ? `${DIMENSION_LABELS[order[fold]].toLowerCase()} across` : null,
   ]
     .filter(Boolean)
     .join(", ");
 
+  let main: ReactNode;
+  if (error) {
+    main = (
+      <div className="rounded-lg border border-dashed border-destructive/40 bg-card p-12 text-center text-sm text-destructive">
+        {error}
+      </div>
+    );
+  } else if (loading && allRows.length === 0) {
+    main = (
+      <div className="rounded-lg border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground">
+        Loading samples\u2026
+      </div>
+    );
+  } else if (allRows.length === 0) {
+    main = empty ?? (
+      <div className="rounded-lg border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground">
+        No samples logged for these runs.
+      </div>
+    );
+  } else {
+    main = (
+      <div className="flex flex-col gap-3">
+        {plan.map((section, i) => (
+          <SectionView
+            key={`${i}-${section.crumbs.map((c) => c.value).join("/")}`}
+            section={section}
+            depth={0}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-6 py-5 lg:flex-row">
+    <div
+      className={cn(
+        "flex w-full flex-col gap-4 lg:flex-row",
+        bare ? "" : "mx-auto max-w-[1600px] px-6 py-5",
+      )}
+    >
       <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <h1 className="text-base font-semibold text-foreground">Examples</h1>
+        {!bare && (
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <h1 className="text-base font-semibold text-foreground">Examples</h1>
+            <p className="text-xs text-muted-foreground">
+              {rows.length} samples &middot; {summary || "ungrouped"}
+            </p>
+          </div>
+        )}
+        {bare && allRows.length > 0 && (
           <p className="text-xs text-muted-foreground">
             {rows.length} samples &middot; {summary || "ungrouped"}
           </p>
-        </div>
-
-        {rows.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground">
-            Every model is hidden. Turn one back on in the legend.
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {plan.map((section, i) => (
-              <SectionView
-                key={`${i}-${section.crumbs.map((c) => c.value).join("/")}`}
-                section={section}
-                depth={0}
-              />
-            ))}
-          </div>
         )}
+        {main}
       </div>
 
       {/* Sticky: the view picker and legend are used *while* reading the
@@ -556,19 +614,25 @@ export function SamplesTab() {
           if the dials make it taller than the viewport. */}
       <div className="flex w-full shrink-0 flex-col gap-3 lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:w-72 lg:overflow-y-auto">
         <SampleGroupingPanel view={view} onChange={setView} />
-        <FixtureControls shape={shape} onChange={setShape} total={allRows.length} />
-        <ModelLegend
-          models={models}
-          hidden={hidden}
-          onToggle={(m) => {
-            const next = new Set(hidden);
-            if (next.has(m)) next.delete(m);
-            else next.add(m);
-            setHidden(next);
-          }}
-          onShowAll={() => setHidden(new Set())}
-        />
+        {controls}
+        {/* No model legend here. The shared RunsPanel beside this column is
+            already the legend — same colour dots, same toggle — and two
+            controls doing overlapping jobs at different granularity on one
+            page is worse than one doing it at the wrong granularity. Hiding
+            a run there hides it here, as on Training and Eval. */}
       </div>
     </div>
+  );
+}
+
+/** The development workbench: generated rows plus the dials that stress them. */
+export function SamplesTab() {
+  const [shape, setShape] = useState<FixtureShape>(DEFAULT_SHAPE);
+  const allRows = useMemo(() => generateSamples(shape), [shape]);
+  return (
+    <SamplesView
+      rows={allRows}
+      controls={<FixtureControls shape={shape} onChange={setShape} total={allRows.length} />}
+    />
   );
 }

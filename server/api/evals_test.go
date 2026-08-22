@@ -317,3 +317,25 @@ func TestHandleRunEvalsHappyPath(t *testing.T) {
 			got[1].TaskSet, got[1].AimRunHash)
 	}
 }
+
+func TestHandleRunEvalsFiltersByModelAcrossDifferentTaskSets(t *testing.T) {
+	// TestHandleRunEvalsFiltersByModelRunHash puts both models' evals
+	// under the SAME task_set, so dedupe-by-task-set collapses them to
+	// one entry and the count is 1 whether or not the model filter
+	// works. Found by a mutation that removed the filter and passed.
+	//
+	// Different task sets, so a leak shows up as an extra entry.
+	t0 := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	h := makeHandlerWithAim(t, fakeAim(t, []fakeRun{
+		makeEvalFakeRun("e1", "glue", "model-1", t0),
+		makeEvalFakeRun("e2", "squad", "model-2", t0),
+	}))
+
+	got := callEvals(t, h, "model-1")
+	if len(got) != 1 {
+		t.Fatalf("expected only model-1's eval, got %d: %v", len(got), got)
+	}
+	if got[0].TaskSet != "glue" {
+		t.Errorf("another model's eval leaked in: %+v", got)
+	}
+}

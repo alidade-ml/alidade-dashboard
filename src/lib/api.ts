@@ -1,4 +1,6 @@
 import type {
+  SampleBatch,
+  SampleManifestEntry,
   ColorsResponse,
   CostResponse,
   EvalManifestEntry,
@@ -109,6 +111,22 @@ export const api = {
     withSeed(
       () => getJSON<EvalManifestEntry[]>(`/runs/${encodeURIComponent(modelRunHash)}/evals`, signal),
       () => [],
+      signal,
+    ),
+  /** Sample batches logged against a training run, newest per set.
+   *  Scoped server-side to the run's own Aim experiment. */
+  samples: (modelRunHash: string, signal?: AbortSignal) =>
+    withSeed(
+      () =>
+        getJSON<SampleManifestEntry[]>(`/runs/${encodeURIComponent(modelRunHash)}/samples`, signal),
+      () => [],
+      signal,
+    ),
+  /** One batch's pairs. Image pairs carry a uri for `sampleBlobUrl`,
+   *  not bytes, so a grid can lay out before pulling megabytes. */
+  sampleBatch: (aimRunHash: string, sampleSet: string, signal?: AbortSignal) =>
+    getJSON<SampleBatch>(
+      `/samples/${encodeURIComponent(aimRunHash)}?set=${encodeURIComponent(sampleSet)}`,
       signal,
     ),
   /** Run info — props + metric names. Used by the Eval tab to enumerate

@@ -1,0 +1,5 @@
+{
+  "_comment": "Pinned engine ref that testdata/contract.py was vendored from, plus its sha256. This is a TEST FIXTURE, not shipped code: nothing in the binary reads it. To update: copy astrolabe/contract.py here, update both fields, run go test. See tools/vendor-contract.sh.",
+  "vendored_from": "astrolabe@15277a9",
+  "sha256": "701507712ba949cbad30b49a494d4211500c6eb8f2e401e3ed6de3f75f232492"
+}

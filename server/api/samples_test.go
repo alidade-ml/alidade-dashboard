@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -323,12 +324,17 @@ func TestSamplesReturnsSetsNewestFirst(t *testing.T) {
 // These pin the two behaviours EXAMPLES-1.01b deliberately alters, so a
 // later reader can tell a decision from a regression.
 
-func TestSamplesInAnotherExperimentAreNotReturned(t *testing.T) {
-	// The behaviour this slice removes on purpose. log_samples files a
-	// batch under the submitting experiment, so a batch filed elsewhere
-	// only happens when it ran with no submit in scope and fell back to
-	// "sample/<set>". That is a known gap owned by the producer, NOT a
-	// reason to restore a project-wide scan.
+func TestSamplesInAnotherExperimentAreReturned(t *testing.T) {
+	// INVERTED by RUNSET-1.03, deliberately.
+	//
+	// EXAMPLES-1.01b narrowed discovery to the model run's own
+	// experiment, because the only alternative then was a project-wide
+	// walk. It recorded the cost as a known gap: a batch logged with no
+	// submit in scope files under "sample/<set>" and became invisible.
+	//
+	// Asking Aim by tag has no reason to care which experiment a batch is
+	// in, so the gap closes and this assertion flips. The old version of
+	// this test pinned a trade-off that no longer has to be made.
 	now := time.Now()
 	stray := makeSampleFakeRun("s-stray", "faces", "model-a", now)
 	stray.experiment = "sample/faces"
@@ -339,11 +345,18 @@ func TestSamplesInAnotherExperimentAreNotReturned(t *testing.T) {
 	})
 	got := callSamples(t, h, "model-a")
 
-	if len(got) != 1 {
-		t.Fatalf("expected only the sibling batch, got %+v", got)
+	if len(got) != 2 {
+		t.Fatalf("expected both the sibling and the stray batch, got %+v", got)
 	}
-	if got[0].AimRunHash != "s-sibling" {
-		t.Fatalf("expected s-sibling, got %q", got[0].AimRunHash)
+	found := map[string]bool{}
+	for _, e := range got {
+		found[e.AimRunHash] = true
+	}
+	if !found["s-stray"] {
+		t.Errorf("the batch filed outside the model run's experiment was not found: %+v", got)
+	}
+	if !found["s-sibling"] {
+		t.Errorf("the sibling batch was lost: %+v", got)
 	}
 }
 
@@ -515,19 +528,6 @@ func TestBatchKeepsAnEmptyInputDistinctFromAnAbsentOne(t *testing.T) {
 	}
 }
 
-func TestBatchRefusesAnImageBatch(t *testing.T) {
-	// Image records decode with empty Text and a populated BlobURI.
-	// Serving them would render every output as an empty string, which
-	// reads as a model that produced nothing. 03 serves images.
-	aim := fakeObjectAim(t, map[string]string{
-		"sample/faces/output": "images_get_batch.bin",
-	})
-	rr := callBatch(t, aim, "abc123", "faces")
-	if rr.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
 func TestBatchRejectsABadHashOrSet(t *testing.T) {
 	aim := textBatchAim(t)
 	for _, tc := range []struct{ hash, set string }{
@@ -559,5 +559,431 @@ func TestBatchWithNoSequencesIsEmptyNotNull(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), `"pairs":[]`) {
 		t.Errorf("pairs did not serialise as []: %s", rr.Body.String())
+	}
+}
+
+// --- images: metadata, then blobs (EXAMPLES-1.03) ---
+//
+// Contract:
+//   * The image sequence carries metadata and an opaque blob_uri. Pixels
+//     need a second POST to a REPO-level route with no run hash.
+//   * Blobs come back keyed by uri. Joining by request order is
+//     indistinguishable from correct with one image and wrong with two.
+//   * The uri is Aim's Fernet token. It goes back verbatim: never
+//     parsed, rebuilt or normalised.
+//   * Content-Type comes from the record's format, never from sniffing.
+
+func imageBatchAim(t *testing.T) *AimClient {
+	return fakeObjectAim(t, map[string]string{
+		"sample/faces/output": "images_get_batch.bin",
+	})
+}
+
+// blobURIsFromFixture returns the uris in the order the captured
+// sequence lists them.
+func blobURIsFromFixture(t *testing.T) []string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "images_blob_uris.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var uris []string
+	if err := json.Unmarshal(b, &uris); err != nil {
+		t.Fatal(err)
+	}
+	if len(uris) != 3 {
+		t.Fatalf("fixture has %d uris, want 3 — the order test needs at least 2", len(uris))
+	}
+	return uris
+}
+
+// fakeBlobAim serves the captured blob-batch body for any request.
+// requested records what the handler asked for.
+func fakeBlobAim(t *testing.T, requested *[]string) *AimClient {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/images/get-batch") {
+			http.NotFound(w, r)
+			return
+		}
+		var uris []string
+		_ = json.NewDecoder(r.Body).Decode(&uris)
+		if requested != nil {
+			*requested = append(*requested, uris...)
+		}
+		b, err := os.ReadFile(filepath.Join("testdata", "images_blobs_batch.bin"))
+		if err != nil {
+			t.Fatalf("fixture: %v", err)
+		}
+		_, _ = w.Write(b)
+	}))
+	t.Cleanup(srv.Close)
+	return NewAimClient(srv.URL)
+}
+
+func TestBlobsAreKeyedByURINotByRequestOrder(t *testing.T) {
+	// The test that needs more than one image. Asking for the uris in
+	// REVERSE order must still return each uri its own bytes; an
+	// implementation that zips the response against the request order
+	// passes with one image and silently swaps with two.
+	uris := blobURIsFromFixture(t)
+	aim := fakeBlobAim(t, nil)
+
+	forward, err := aim.GetBlobs(uris)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reversed := []string{uris[2], uris[1], uris[0]}
+	backward, err := aim.GetBlobs(reversed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range uris {
+		if len(forward[u]) == 0 {
+			t.Fatalf("uri %.20s… returned no bytes", u)
+		}
+		if string(forward[u]) != string(backward[u]) {
+			t.Errorf("uri %.20s… got different bytes depending on request order", u)
+		}
+	}
+	// And the three are not all the same blob, or the check above is vacuous.
+	if string(forward[uris[0]]) == string(forward[uris[1]]) {
+		t.Fatal("fixture blobs are identical; the ordering test proves nothing")
+	}
+}
+
+func TestBlobsAreRealImages(t *testing.T) {
+	uris := blobURIsFromFixture(t)
+	blobs, err := fakeBlobAim(t, nil).GetBlobs(uris)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range uris {
+		b := blobs[u]
+		if len(b) < 8 || string(b[:8]) != "\x89PNG\r\n\x1a\n" {
+			t.Errorf("uri %.20s… did not return a PNG: % x", u, b[:min(8, len(b))])
+		}
+	}
+}
+
+func TestBlobURIGoesBackToAimVerbatim(t *testing.T) {
+	// Fernet tokens contain '-', '_' and '=' padding. Any unescaping,
+	// re-encoding or normalisation on this side produces a token Aim
+	// cannot decrypt, and the failure is a broken image rather than an
+	// error.
+	uris := blobURIsFromFixture(t)
+	var requested []string
+	aim := fakeBlobAim(t, &requested)
+
+	h := NewHandler(aim, nil, nil)
+	req := httptest.NewRequest("GET", "/api/samples/blob?uri="+url.QueryEscape(uris[0]), nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(requested) != 1 {
+		t.Fatalf("expected exactly one uri sent to Aim, got %d", len(requested))
+	}
+	if requested[0] != uris[0] {
+		t.Errorf("uri was altered in transit:\n sent: %q\n want: %q", requested[0], uris[0])
+	}
+}
+
+func TestBlobContentTypeComesFromTheFormatNotSniffing(t *testing.T) {
+	uris := blobURIsFromFixture(t)
+	h := NewHandler(fakeBlobAim(t, nil), nil, nil)
+
+	req := httptest.NewRequest("GET", "/api/samples/blob?uri="+url.QueryEscape(uris[0])+"&format=png", nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+	if ct := rr.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", ct)
+	}
+
+	// A format outside the closed set is a disagreement between the
+	// batch and the request, not something to guess at.
+	req = httptest.NewRequest("GET", "/api/samples/blob?uri="+url.QueryEscape(uris[0])+"&format=tiff", nil)
+	rr = httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+	if rr.Code != 400 {
+		t.Errorf("expected 400 for an unsupported format, got %d", rr.Code)
+	}
+}
+
+func TestBlobMissingURIIsRejectedBeforeAnyRequest(t *testing.T) {
+	var requested []string
+	h := NewHandler(fakeBlobAim(t, &requested), nil, nil)
+	req := httptest.NewRequest("GET", "/api/samples/blob", nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+
+	if rr.Code != 400 {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+	if len(requested) != 0 {
+		t.Errorf("a request left the hub for a missing uri: %v", requested)
+	}
+}
+
+func TestBlobUnknownURIIs404NotAnEmpty200(t *testing.T) {
+	// An empty 200 renders as a blank image; a 404 renders as a broken
+	// one. Broken is honest.
+	h := NewHandler(fakeBlobAim(t, nil), nil, nil)
+	req := httptest.NewRequest("GET", "/api/samples/blob?uri=not-a-real-token", nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+	if rr.Code != 404 {
+		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestBlobUnreachableAimIs502(t *testing.T) {
+	h := NewHandler(NewAimClient("http://127.0.0.1:1"), nil, nil)
+	req := httptest.NewRequest("GET", "/api/samples/blob?uri=x", nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+	if rr.Code != 502 {
+		t.Fatalf("expected 502, got %d", rr.Code)
+	}
+}
+
+func TestAnImageBatchCarriesURIsAndKindImage(t *testing.T) {
+	rr := callBatch(t, imageBatchAim(t), "abc123", "faces")
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var b SampleBatch
+	if err := json.NewDecoder(rr.Body).Decode(&b); err != nil {
+		t.Fatal(err)
+	}
+	if b.Kind != "image" {
+		t.Errorf("kind = %q, want image", b.Kind)
+	}
+	if len(b.Pairs) != 3 {
+		t.Fatalf("got %d pairs, want 3", len(b.Pairs))
+	}
+	for _, p := range b.Pairs {
+		if p.OutputURI == nil || *p.OutputURI == "" {
+			t.Errorf("step %d has no output_uri", p.Step)
+		}
+		if p.OutputText != nil {
+			t.Errorf("step %d has output_text on an image batch: %q", p.Step, *p.OutputText)
+		}
+	}
+}
+
+func TestAnImageBatchCarriesNoPixelBytes(t *testing.T) {
+	// The batch route hands back names so a tab can lay out its grid
+	// before pulling megabytes. Bytes come from the blob route.
+	rr := callBatch(t, imageBatchAim(t), "abc123", "faces")
+	if strings.Contains(rr.Body.String(), "\x89PNG") {
+		t.Error("the batch response carried image bytes")
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q", ct)
+	}
+}
+
+func TestDiscoveryDoesNotEnumerateExperiments(t *testing.T) {
+	// Both discovery endpoints ask now. The bodies are identical either
+	// way, so the call count is the only observable difference — and a
+	// handler that fell back to enumerating would still pass every other
+	// test in this file.
+	now := time.Now()
+	runs := []fakeRun{
+		makeModelRun("model-a"),
+		makeSampleFakeRun("s1", "faces", "model-a", now),
+		{
+			experiment: "eval/glue", hash: "e1", creationTime: unixSecs(now),
+			tags: map[string]any{
+				"astrolabe.kind":           "eval",
+				"astrolabe.task_set":       "glue",
+				"astrolabe.model_run_hash": "model-a",
+			},
+		},
+	}
+	for i := 0; i < 30; i++ {
+		runs = append(runs, fakeRun{
+			experiment:   fmt.Sprintf("unrelated-%d", i),
+			hash:         fmt.Sprintf("u%d", i),
+			creationTime: unixSecs(now),
+			tags:         map[string]any{"astrolabe.kind": "training"},
+		})
+	}
+
+	var listCalls int32
+	aim := fakeAimCountingLists(t, runs, &listCalls)
+	h := NewHandler(aim, nil, nil)
+
+	for _, tc := range []struct {
+		name string
+		path string
+		fn   func(http.ResponseWriter, *http.Request)
+	}{
+		{"samples", "/api/runs/model-a/samples", h.HandleRunSamples},
+		{"evals", "/api/runs/model-a/evals", h.HandleRunEvals},
+	} {
+		atomic.StoreInt32(&listCalls, 0)
+		req := httptest.NewRequest("GET", tc.path, nil)
+		rr := httptest.NewRecorder()
+		tc.fn(rr, req)
+		if rr.Code != 200 {
+			t.Fatalf("%s: expected 200, got %d: %s", tc.name, rr.Code, rr.Body.String())
+		}
+		if got := atomic.LoadInt32(&listCalls); got != 0 {
+			t.Errorf("%s: enumerated experiments %d times; it should ask", tc.name, got)
+		}
+	}
+}
+
+func TestSamplesArchivedBatchesAreExcluded(t *testing.T) {
+	// An archived batch is one a user hid on purpose. Nothing covered
+	// this until a mutation removed the check and passed.
+	now := time.Now()
+	archived := makeSampleFakeRun("s-archived", "faces", "model-a", now)
+	archived.archived = true
+
+	h := sampleHandler(t, []fakeRun{
+		makeSampleFakeRun("s-live", "denoise", "model-a", now),
+		archived,
+	})
+	got := callSamples(t, h, "model-a")
+
+	for _, e := range got {
+		if e.AimRunHash == "s-archived" {
+			t.Fatalf("an archived batch was returned: %+v", got)
+		}
+	}
+	if len(got) != 1 {
+		t.Errorf("expected the live batch only, got %+v", got)
+	}
+}
+
+// fakeLyingAim returns the given runs for ANY search, ignoring the query.
+// It stands in for an Aim whose query semantics differ from ours — a
+// version change, a syntax we got subtly wrong, a server-side filter that
+// silently matches more than we asked.
+func fakeLyingAim(t *testing.T, runs []fakeRun) *AimClient {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/runs/search/run/") {
+			_, _ = w.Write(encodeSearchFromFakeRuns(runs))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/info/") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"params":{},"traces":{"metric":[]},"props":{}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return NewAimClient(srv.URL)
+}
+
+func TestDiscoveryRechecksTagsWhenAimAnswersTooBroadly(t *testing.T) {
+	// The query is the optimisation; the tag re-check is the correctness.
+	// No fake that filters correctly can exercise it, so this one does not
+	// filter at all — and the handler must still drop what it did not ask
+	// for. Without the re-check, another model's batches reach the tab.
+	now := time.Now()
+	wrong := []fakeRun{
+		makeSampleFakeRun("s-mine", "faces", "model-a", now),
+		makeSampleFakeRun("s-theirs", "denoise", "model-b", now),
+		{
+			experiment: "x", hash: "not-a-sample", creationTime: unixSecs(now),
+			tags: map[string]any{
+				"astrolabe.kind":           "training",
+				"astrolabe.sample_set":     "faces",
+				"astrolabe.model_run_hash": "model-a",
+			},
+		},
+	}
+
+	h := NewHandler(fakeLyingAim(t, wrong), nil, nil)
+	req := httptest.NewRequest("GET", "/api/runs/model-a/samples", nil)
+	rr := httptest.NewRecorder()
+	h.HandleRunSamples(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var got []SampleManifestEntry
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].AimRunHash != "s-mine" {
+		t.Errorf("the handler trusted a too-broad answer: %+v", got)
+	}
+
+	// Same for evals.
+	evalWrong := []fakeRun{
+		{
+			experiment: "eval/glue", hash: "e-mine", creationTime: unixSecs(now),
+			tags: map[string]any{
+				"astrolabe.kind": "eval", "astrolabe.task_set": "glue",
+				"astrolabe.model_run_hash": "model-a",
+			},
+		},
+		{
+			experiment: "eval/squad", hash: "e-theirs", creationTime: unixSecs(now),
+			tags: map[string]any{
+				"astrolabe.kind": "eval", "astrolabe.task_set": "squad",
+				"astrolabe.model_run_hash": "model-b",
+			},
+		},
+	}
+	h2 := NewHandler(fakeLyingAim(t, evalWrong), nil, nil)
+	req2 := httptest.NewRequest("GET", "/api/runs/model-a/evals", nil)
+	rr2 := httptest.NewRecorder()
+	h2.HandleRunEvals(rr2, req2)
+	var gotEvals []EvalManifestEntry
+	if err := json.NewDecoder(rr2.Body).Decode(&gotEvals); err != nil {
+		t.Fatal(err)
+	}
+	if len(gotEvals) != 1 || gotEvals[0].AimRunHash != "e-mine" {
+		t.Errorf("eval discovery trusted a too-broad answer: %+v", gotEvals)
+	}
+}
+
+func TestSampleRunsAreNotRowsInTheExperimentRunList(t *testing.T) {
+	// RUNKIND-1. HandleExperimentRuns already excludes eval and metadata
+	// runs — "not a row itself" — and sample was simply never added to
+	// that switch. The visible effect was an experiment showing three
+	// rows, all displaying the experiment's name, for one model.
+	//
+	// Their real Aim names are empty; the API's display fallback paints
+	// them with the experiment name, which is why they looked like
+	// duplicates of the training run rather than like artifacts.
+	now := time.Now()
+	h := makeHandlerWithAim(t, fakeAim(t, []fakeRun{
+		{
+			experiment: fixtureExperiment, hash: "train1", name: "my-model",
+			creationTime: unixSecs(now),
+			tags:         map[string]any{},
+		},
+		makeSampleFakeRun("s1", "faces", "train1", now),
+		makeSampleFakeRun("s2", "captions", "train1", now),
+	}))
+
+	req := httptest.NewRequest("GET", "/api/experiments/"+fixtureExperiment+"/runs", nil)
+	rr := httptest.NewRecorder()
+	h.HandleExperimentRuns(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var runs []RunDetail
+	if err := json.NewDecoder(rr.Body).Decode(&runs); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range runs {
+		if r.Hash == "s1" || r.Hash == "s2" {
+			t.Errorf("a sample batch was listed as a comparable run: %+v", r)
+		}
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected only the training run, got %d: %+v", len(runs), runs)
 	}
 }

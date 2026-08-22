@@ -97,6 +97,7 @@ func main() {
 	})
 	// Uncached for the same reason as discovery: a researcher who just
 	// re-ran the export should see it.
+	mux.HandleFunc("/api/samples/blob", handler.HandleSampleBlob)
 	mux.HandleFunc("/api/samples/", handler.HandleSampleBatch)
 	mux.HandleFunc("/api/experiments", experimentsCache.Middleware(handler.HandleExperiments))
 	mux.HandleFunc("/api/experiments/", func(w http.ResponseWriter, r *http.Request) {
