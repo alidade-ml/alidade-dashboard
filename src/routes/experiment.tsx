@@ -24,6 +24,7 @@ import { ShortcutsHelp } from "@/components/shortcuts-help";
 import { useGlobalShortcuts } from "@/hooks/use-global-shortcuts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EvalTabFromAllRuns } from "@/components/eval-tab";
+import { SamplesTabLive } from "@/components/samples-tab-live";
 import { RunsPanel } from "@/components/runs-panel";
 
 const searchSchema = z.object({
@@ -610,6 +611,12 @@ function ExperimentBody({
             >
               Eval
             </TabsTrigger>
+            <TabsTrigger
+              value="examples"
+              className="rounded-none border-b-2 border-transparent bg-transparent px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              Examples
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="training" className="mt-3">
@@ -768,6 +775,39 @@ function ExperimentBody({
                     // either bucket. removedFromIncludes suppresses it
                     // on next include-fetch so the seeded set doesn't
                     // silently re-add it.
+                    setSeededComparison((prev) => prev.filter((c) => c.hash !== hash));
+                    setUserAddedComparison((prev) => prev.filter((c) => c.hash !== hash));
+                    setRemovedFromIncludes((prev) => new Set([...prev, hash]));
+                  }}
+                />
+              </aside>
+            </div>
+          </TabsContent>
+
+          {/* Same two-column layout as Training and Eval so the shared
+              RunsPanel does not move between tabs, and hiding a run here
+              hides it everywhere. Mounted lazily by Radix: samples are
+              several requests per run and nobody should pay for them by
+              opening the page on Training. */}
+          <TabsContent value="examples" className="mt-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-5">
+              <div className="min-w-0">
+                <SamplesTabLive allRuns={allRuns} hiddenRunHashes={hiddenRuns} />
+              </div>
+              <aside className="space-y-3">
+                <RunsPanel
+                  visibleRuns={visibleRuns}
+                  selectedVersionLabel={selectedVersion?.label}
+                  runFilter={runFilter}
+                  onRunFilterChange={setRunFilter}
+                  hiddenRuns={hiddenRuns}
+                  setHiddenRuns={setHiddenRuns}
+                  runColors={runColors}
+                  runMeta={runMeta}
+                  comparisonHashes={comparisonHashesSet}
+                  showSubmitterLines={showSubmitterLines}
+                  onAddRuns={() => setModalOpen(true)}
+                  onRemoveComparison={(hash) => {
                     setSeededComparison((prev) => prev.filter((c) => c.hash !== hash));
                     setUserAddedComparison((prev) => prev.filter((c) => c.hash !== hash));
                     setRemovedFromIncludes((prev) => new Set([...prev, hash]));
