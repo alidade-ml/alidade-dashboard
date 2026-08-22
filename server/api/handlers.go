@@ -607,72 +607,76 @@ func (h *Handler) HandleExperimentIncludes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	aimByExp, byHash, byRunName := h.aimRunIndex()
-
+	// One query per include, rather than an index of the whole project
+	// built once and thrown away. `aimRunIndex` stays for the two
+	// endpoints whose response IS every run — see RUNSET-1.02.
 	resolved := make([]IncludeEntry, 0, len(includeNames))
 	for _, incName := range includeNames {
-		resolved = append(resolved, resolveInclude(incName, aimByExp, byHash, byRunName))
+		resolved = append(resolved, h.resolveIncludeByQuery(incName))
 	}
 
 	writeJSON(w, map[string]interface{}{"includes": resolved})
 }
 
-// resolveInclude applies the four-step resolution order to a single
-// include identifier. Pure function over the indexes built by
-// aimRunIndex — easy to unit-test without a real Aim instance.
-func resolveInclude(
-	incName string,
-	byAimExperiment map[string][]RunSummary,
-	byHash map[string]RunSummary,
-	byRunName map[string][]RunSummary,
-) IncludeEntry {
+// resolveIncludeByQuery applies the four-shape resolution order using
+// Aim's search endpoint instead of an index of the whole project.
+//
+// The shapes, and what each costs now:
+//
+//	hash        one query, exact
+//	experiment  one query, exact
+//	run name    one query, then a sort here — Aim can filter on
+//	            run.name but cannot do "most recent matching", so the
+//	            newest-only rule stays client-side over a handful of
+//	            rows rather than over every run in the project
+//	unknown     no query at all
+//
+// Errors resolve to unknown rather than propagating. An include that
+// cannot be resolved already has a rendering — the struck-out chip — and
+// failing the whole endpoint because one spec is unresolvable would hide
+// the others.
+func (h *Handler) resolveIncludeByQuery(incName string) IncludeEntry {
 	entry := IncludeEntry{Name: incName, Type: "unknown", Runs: []string{}}
 
-	// 1. Hash — strict hex check, ≥16 chars to avoid colliding with
-	// short hex-shaped experiment names. Aim hashes are 24+ in
-	// practice; the 16-char floor leaves headroom without forcing the
-	// caller to type the full hash.
+	// 1. Hash — strict hex check, >=16 chars to avoid colliding with
+	// short hex-shaped experiment names.
 	if isHashLike(incName) {
-		if rs, ok := byHash[incName]; ok {
+		info, err := h.aim.GetRunInfo(incName)
+		if err == nil {
 			entry.Type = "hash"
-			entry.Runs = []string{rs.Hash}
-			// Surface the run's meaningful name to the frontend so the
-			// comparison panel chip reads "bert-tiny" instead of the
-			// 24-char hash. Without this, hash-resolved includes were
-			// the only resolved type whose display name was the input
-			// identifier (experiment + run-name include kinds use a
-			// human-readable input directly; hash inputs need the
-			// lookup to recover one).
-			if rs.Name != "" {
-				entry.Name = rs.Name
+			entry.Runs = []string{incName}
+			// Surface the run's meaningful name so the chip reads
+			// "bert-tiny" rather than a 24-char hash.
+			// Aim's placeholder ("Run: <hash>") carries no information,
+			// so it is left as the hash rather than shown as a name.
+			if n := info.Props.Name; n != "" && !strings.HasPrefix(n, "Run: ") {
+				entry.Name = n
 			}
 			return entry
 		}
-		// Hash-shaped but not found — fall through to other resolvers
-		// in case a future Aim layout changes the hash shape. Today
-		// nothing else matches a hex-shaped string, so this falls
-		// straight through to "unknown".
+		// Hash-shaped but unknown to Aim — fall through, as before.
 	}
 
 	// 2. Aim experiment name — exact match, multi-run.
-	if runs, ok := byAimExperiment[incName]; ok && len(runs) > 0 {
+	if runs, err := h.aim.SearchRuns(QueryByExperiment(incName)); err == nil && len(runs) > 0 {
 		entry.Type = "experiment"
 		entry.Runs = make([]string, 0, len(runs))
 		for _, r := range runs {
+			if r.Archived {
+				continue
+			}
 			entry.Runs = append(entry.Runs, r.Hash)
 		}
-		return entry
+		if len(entry.Runs) > 0 {
+			return entry
+		}
 	}
 
-	// 3. Run name — exact match across all experiments, narrowed to
-	// the SINGLE most recent matching run. The same run.name often
-	// appears across many experiments (e.g. "astrolabe_test" is the
-	// inner training name for several different experiment configs);
-	// pulling every match flooded the comparison set with versions
-	// the user didn't ask for. Researchers who want wider scope use
-	// the experiment-name path (--include=<exp>) or paste specific
-	// hashes.
-	if runs, ok := byRunName[incName]; ok && len(runs) > 0 {
+	// 3. Run name — narrowed to the SINGLE most recent match across all
+	// experiments. The same run.name commonly appears in many
+	// experiments (e.g. "astrolabe_test" is the inner training name for
+	// several configs); pulling every match flooded the comparison set.
+	if runs, err := h.aim.SearchRuns(QueryByRunName(incName)); err == nil && len(runs) > 0 {
 		latest := runs[0]
 		for _, r := range runs[1:] {
 			if r.CreationTime > latest.CreationTime {
@@ -684,16 +688,11 @@ func resolveInclude(
 		return entry
 	}
 
-	// 4. No match. Empty Runs, type="unknown" — frontend renders as
-	// a struck-out unresolved chip so the operator sees the dropped
-	// include rather than wondering why their compare set is short.
+	// 4. No match. Empty Runs, type="unknown" — the frontend renders a
+	// struck-out chip so the operator sees the dropped include.
 	return entry
 }
 
-// isHashLike returns true if s looks like an Aim run hash: lowercase
-// hex, ≥16 chars. Conservative threshold so a researcher with an
-// experiment literally named "abc123" doesn't get it interpreted as a
-// (non-existent) hash.
 func isHashLike(s string) bool {
 	if len(s) < 16 {
 		return false

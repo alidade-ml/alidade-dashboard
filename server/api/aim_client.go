@@ -853,3 +853,11 @@ func ParseSearchedRuns(body []byte) ([]SearchedRun, error) {
 func isProgressKey(key string) bool {
 	return strings.HasPrefix(key, "progress_")
 }
+
+// QueryByRunName builds `run.name == '<name>'`.
+//
+// Aim can filter on the name; it cannot do "the most recent one", so a
+// caller wanting newest-only sorts the result itself.
+func QueryByRunName(name string) string {
+	return "run.name == " + quoteAimLiteral(name)
+}
