@@ -324,12 +324,17 @@ func TestSamplesReturnsSetsNewestFirst(t *testing.T) {
 // These pin the two behaviours EXAMPLES-1.01b deliberately alters, so a
 // later reader can tell a decision from a regression.
 
-func TestSamplesInAnotherExperimentAreNotReturned(t *testing.T) {
-	// The behaviour this slice removes on purpose. log_samples files a
-	// batch under the submitting experiment, so a batch filed elsewhere
-	// only happens when it ran with no submit in scope and fell back to
-	// "sample/<set>". That is a known gap owned by the producer, NOT a
-	// reason to restore a project-wide scan.
+func TestSamplesInAnotherExperimentAreReturned(t *testing.T) {
+	// INVERTED by RUNSET-1.03, deliberately.
+	//
+	// EXAMPLES-1.01b narrowed discovery to the model run's own
+	// experiment, because the only alternative then was a project-wide
+	// walk. It recorded the cost as a known gap: a batch logged with no
+	// submit in scope files under "sample/<set>" and became invisible.
+	//
+	// Asking Aim by tag has no reason to care which experiment a batch is
+	// in, so the gap closes and this assertion flips. The old version of
+	// this test pinned a trade-off that no longer has to be made.
 	now := time.Now()
 	stray := makeSampleFakeRun("s-stray", "faces", "model-a", now)
 	stray.experiment = "sample/faces"
@@ -340,11 +345,18 @@ func TestSamplesInAnotherExperimentAreNotReturned(t *testing.T) {
 	})
 	got := callSamples(t, h, "model-a")
 
-	if len(got) != 1 {
-		t.Fatalf("expected only the sibling batch, got %+v", got)
+	if len(got) != 2 {
+		t.Fatalf("expected both the sibling and the stray batch, got %+v", got)
 	}
-	if got[0].AimRunHash != "s-sibling" {
-		t.Fatalf("expected s-sibling, got %q", got[0].AimRunHash)
+	found := map[string]bool{}
+	for _, e := range got {
+		found[e.AimRunHash] = true
+	}
+	if !found["s-stray"] {
+		t.Errorf("the batch filed outside the model run's experiment was not found: %+v", got)
+	}
+	if !found["s-sibling"] {
+		t.Errorf("the sibling batch was lost: %+v", got)
 	}
 }
 
@@ -771,5 +783,166 @@ func TestAnImageBatchCarriesNoPixelBytes(t *testing.T) {
 	}
 	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type = %q", ct)
+	}
+}
+
+func TestDiscoveryDoesNotEnumerateExperiments(t *testing.T) {
+	// Both discovery endpoints ask now. The bodies are identical either
+	// way, so the call count is the only observable difference — and a
+	// handler that fell back to enumerating would still pass every other
+	// test in this file.
+	now := time.Now()
+	runs := []fakeRun{
+		makeModelRun("model-a"),
+		makeSampleFakeRun("s1", "faces", "model-a", now),
+		{
+			experiment: "eval/glue", hash: "e1", creationTime: unixSecs(now),
+			tags: map[string]any{
+				"astrolabe.kind":           "eval",
+				"astrolabe.task_set":       "glue",
+				"astrolabe.model_run_hash": "model-a",
+			},
+		},
+	}
+	for i := 0; i < 30; i++ {
+		runs = append(runs, fakeRun{
+			experiment:   fmt.Sprintf("unrelated-%d", i),
+			hash:         fmt.Sprintf("u%d", i),
+			creationTime: unixSecs(now),
+			tags:         map[string]any{"astrolabe.kind": "training"},
+		})
+	}
+
+	var listCalls int32
+	aim := fakeAimCountingLists(t, runs, &listCalls)
+	h := NewHandler(aim, nil, nil)
+
+	for _, tc := range []struct {
+		name string
+		path string
+		fn   func(http.ResponseWriter, *http.Request)
+	}{
+		{"samples", "/api/runs/model-a/samples", h.HandleRunSamples},
+		{"evals", "/api/runs/model-a/evals", h.HandleRunEvals},
+	} {
+		atomic.StoreInt32(&listCalls, 0)
+		req := httptest.NewRequest("GET", tc.path, nil)
+		rr := httptest.NewRecorder()
+		tc.fn(rr, req)
+		if rr.Code != 200 {
+			t.Fatalf("%s: expected 200, got %d: %s", tc.name, rr.Code, rr.Body.String())
+		}
+		if got := atomic.LoadInt32(&listCalls); got != 0 {
+			t.Errorf("%s: enumerated experiments %d times; it should ask", tc.name, got)
+		}
+	}
+}
+
+func TestSamplesArchivedBatchesAreExcluded(t *testing.T) {
+	// An archived batch is one a user hid on purpose. Nothing covered
+	// this until a mutation removed the check and passed.
+	now := time.Now()
+	archived := makeSampleFakeRun("s-archived", "faces", "model-a", now)
+	archived.archived = true
+
+	h := sampleHandler(t, []fakeRun{
+		makeSampleFakeRun("s-live", "denoise", "model-a", now),
+		archived,
+	})
+	got := callSamples(t, h, "model-a")
+
+	for _, e := range got {
+		if e.AimRunHash == "s-archived" {
+			t.Fatalf("an archived batch was returned: %+v", got)
+		}
+	}
+	if len(got) != 1 {
+		t.Errorf("expected the live batch only, got %+v", got)
+	}
+}
+
+// fakeLyingAim returns the given runs for ANY search, ignoring the query.
+// It stands in for an Aim whose query semantics differ from ours — a
+// version change, a syntax we got subtly wrong, a server-side filter that
+// silently matches more than we asked.
+func fakeLyingAim(t *testing.T, runs []fakeRun) *AimClient {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/runs/search/run/") {
+			_, _ = w.Write(encodeSearchFromFakeRuns(runs))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/info/") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"params":{},"traces":{"metric":[]},"props":{}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return NewAimClient(srv.URL)
+}
+
+func TestDiscoveryRechecksTagsWhenAimAnswersTooBroadly(t *testing.T) {
+	// The query is the optimisation; the tag re-check is the correctness.
+	// No fake that filters correctly can exercise it, so this one does not
+	// filter at all — and the handler must still drop what it did not ask
+	// for. Without the re-check, another model's batches reach the tab.
+	now := time.Now()
+	wrong := []fakeRun{
+		makeSampleFakeRun("s-mine", "faces", "model-a", now),
+		makeSampleFakeRun("s-theirs", "denoise", "model-b", now),
+		{
+			experiment: "x", hash: "not-a-sample", creationTime: unixSecs(now),
+			tags: map[string]any{
+				"astrolabe.kind":           "training",
+				"astrolabe.sample_set":     "faces",
+				"astrolabe.model_run_hash": "model-a",
+			},
+		},
+	}
+
+	h := NewHandler(fakeLyingAim(t, wrong), nil, nil)
+	req := httptest.NewRequest("GET", "/api/runs/model-a/samples", nil)
+	rr := httptest.NewRecorder()
+	h.HandleRunSamples(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var got []SampleManifestEntry
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].AimRunHash != "s-mine" {
+		t.Errorf("the handler trusted a too-broad answer: %+v", got)
+	}
+
+	// Same for evals.
+	evalWrong := []fakeRun{
+		{
+			experiment: "eval/glue", hash: "e-mine", creationTime: unixSecs(now),
+			tags: map[string]any{
+				"astrolabe.kind": "eval", "astrolabe.task_set": "glue",
+				"astrolabe.model_run_hash": "model-a",
+			},
+		},
+		{
+			experiment: "eval/squad", hash: "e-theirs", creationTime: unixSecs(now),
+			tags: map[string]any{
+				"astrolabe.kind": "eval", "astrolabe.task_set": "squad",
+				"astrolabe.model_run_hash": "model-b",
+			},
+		},
+	}
+	h2 := NewHandler(fakeLyingAim(t, evalWrong), nil, nil)
+	req2 := httptest.NewRequest("GET", "/api/runs/model-a/evals", nil)
+	rr2 := httptest.NewRecorder()
+	h2.HandleRunEvals(rr2, req2)
+	var gotEvals []EvalManifestEntry
+	if err := json.NewDecoder(rr2.Body).Decode(&gotEvals); err != nil {
+		t.Fatal(err)
+	}
+	if len(gotEvals) != 1 || gotEvals[0].AimRunHash != "e-mine" {
+		t.Errorf("eval discovery trusted a too-broad answer: %+v", gotEvals)
 	}
 }

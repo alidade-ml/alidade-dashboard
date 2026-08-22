@@ -850,100 +850,57 @@ func (h *Handler) HandleRunEvals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	experiments, err := h.aim.ListExperiments()
+	// One query instead of enumerating every run in the project and
+	// reading each one's params. Cross-experiment on purpose: a model
+	// evaluated by one experiment can have been produced by another, and
+	// RunDetail carries a field to say so. In local-aim mode the sidecar
+	// stamps synced eval runs with the *training* experiment name rather
+	// than eval/<task_set>, so anything keyed on the experiment would
+	// silently drop them. The tag is the source of truth.
+	runs, err := h.aim.SearchRuns(QueryByTags(map[string]string{
+		TagKind:         "eval",
+		TagModelRunHash: modelRunHash,
+	}))
 	if err != nil {
+		// 502 rather than an empty list. An empty list reads as "this run
+		// has no evals", which is a plausible and wrong answer.
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 
-	// Collect candidate run-hash + creation-time pairs first (cheap),
-	// then fan out the GetRunInfo calls in parallel — same pattern as
-	// aimRunIndex. One GetRunInfo per candidate is unavoidable since
-	// the tags live in params.
-	//
-	// No pre-filter on experiment name: eval discovery is tag-based per
-	// plans/eval-runs.md. In local-aim mode the sidecar's experiment
-	// association stamps synced eval runs with the *training*
-	// experiment name (not eval/<task_set>), so an experiment-name
-	// pre-filter would silently drop them. The tag check below is the
-	// source of truth.
-	type candidate struct {
-		hash         string
-		creationTime float64
-	}
-	var candidates []candidate
-	for _, exp := range experiments {
-		if exp.RunCount == 0 || exp.Archived {
+	entries := make([]EvalManifestEntry, 0, len(runs))
+	for _, run := range runs {
+		if run.Archived {
 			continue
 		}
-		expRuns, err := h.aim.ListExperimentRuns(exp.ID)
-		if err != nil {
+		tags := AstrolabeTagsFromParams(run.Params)
+		// Re-check what the query asked for. The query is the
+		// optimisation; this is the correctness. Aim's query semantics
+		// are not ours to assume, and a mismatch would put another
+		// model's evals on this run's tab.
+		if tags.Kind != "eval" || tags.ModelRunHash != modelRunHash {
 			continue
 		}
-		for _, ar := range expRuns.Runs {
-			if ar.Archived {
-				continue
-			}
-			candidates = append(candidates, candidate{
-				hash:         ar.RunID,
-				creationTime: ar.CreationTime,
-			})
-		}
+		entries = append(entries, EvalManifestEntry{
+			AimRunHash:   run.Hash,
+			TaskSet:      tags.TaskSet,
+			CreationTime: run.CreationTime,
+		})
 	}
-
-	type indexed struct {
-		i  int
-		e  EvalManifestEntry
-		ok bool
-	}
-	results := make(chan indexed, len(candidates))
-	var wg sync.WaitGroup
-	for i, c := range candidates {
-		wg.Add(1)
-		go func(i int, c candidate) {
-			defer wg.Done()
-			info, err := h.aim.GetRunInfo(c.hash)
-			if err != nil {
-				results <- indexed{i: i, ok: false}
-				return
-			}
-			tags := AstrolabeTagsFromParams(info.Params)
-			if tags.Kind != "eval" || tags.ModelRunHash != modelRunHash {
-				results <- indexed{i: i, ok: false}
-				return
-			}
-			results <- indexed{
-				i: i,
-				e: EvalManifestEntry{
-					AimRunHash:   c.hash,
-					TaskSet:      tags.TaskSet,
-					CreationTime: c.creationTime,
-				},
-				ok: true,
-			}
-		}(i, c)
-	}
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
 
 	// Dedup by task_set keeping newest creation_time. Re-running an
 	// eval mints a new Aim run with the same tags; this is the plan's
 	// re-eval policy ("latest wins, older stays for forensics").
 	newestByTaskSet := map[string]EvalManifestEntry{}
-	for r := range results {
-		if !r.ok {
-			continue
-		}
+	for _, e := range entries {
 		// task_set must be non-empty — without it the section can't be
 		// labeled. Drop rather than show a blank section.
-		if r.e.TaskSet == "" {
+		if e.TaskSet == "" {
 			continue
 		}
-		if existing, found := newestByTaskSet[r.e.TaskSet]; !found ||
-			r.e.CreationTime > existing.CreationTime {
-			newestByTaskSet[r.e.TaskSet] = r.e
+		if existing, found := newestByTaskSet[e.TaskSet]; !found ||
+			e.CreationTime > existing.CreationTime {
+			newestByTaskSet[e.TaskSet] = e
 		}
 	}
 

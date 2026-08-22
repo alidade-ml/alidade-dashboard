@@ -17,8 +17,6 @@ package api
 // prove is anything about the format itself; search_test.go does that.
 
 import (
-	"encoding/binary"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -26,52 +24,6 @@ import (
 	"sync/atomic"
 	"testing"
 )
-
-// --- a minimal Aim-format encoder, for building fake search responses ---
-
-func encFrame(b []byte) []byte {
-	out := make([]byte, 4+len(b))
-	binary.LittleEndian.PutUint32(out[:4], uint32(len(b)))
-	copy(out[4:], b)
-	return out
-}
-
-func encPath(segs ...any) []byte {
-	var out []byte
-	for _, s := range segs {
-		switch v := s.(type) {
-		case string:
-			out = append(out, []byte(v)...)
-			out = append(out, pathSentinel)
-		case int:
-			out = append(out, pathSentinel)
-			n := make([]byte, 8)
-			binary.BigEndian.PutUint64(n, uint64(v))
-			out = append(out, n...)
-			out = append(out, pathSentinel)
-		}
-	}
-	return out
-}
-
-func encVal(v any) []byte {
-	switch x := v.(type) {
-	case string:
-		return append([]byte{tagString}, []byte(x)...)
-	case bool:
-		b := byte(0)
-		if x {
-			b = 1
-		}
-		return []byte{tagBool, b}
-	case float64:
-		out := make([]byte, 9)
-		out[0] = tagFloat
-		binary.LittleEndian.PutUint64(out[1:], math.Float64bits(x))
-		return out
-	}
-	return []byte{tagNone}
-}
 
 type fakeRunRow struct {
 	hash         string

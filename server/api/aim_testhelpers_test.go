@@ -9,10 +9,13 @@ package api
 // file in the package.
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,6 +33,7 @@ type fakeRun struct {
 	creationTime float64 // unix seconds; 0 means missing
 	endTime      float64 // 0 means in-flight
 	tags         map[string]any
+	archived     bool
 }
 
 func (fr fakeRun) displayName() string {
@@ -53,7 +57,20 @@ func fakeAim(t *testing.T, runs []fakeRun) *AimClient {
 // it returned. A handler that walks the whole project and one that walks
 // a single experiment return the same body; the call count is the only
 // observable difference.
+// fakeAimCountingLists is fakeAim with a counter on the experiment- and
+// run-LISTING routes, for asserting that a handler asks rather than
+// enumerates.
+func fakeAimCountingLists(t *testing.T, runs []fakeRun, listCalls *int32) *AimClient {
+	t.Helper()
+	return fakeAimFull(t, runs, nil, listCalls)
+}
+
 func fakeAimCounting(t *testing.T, runs []fakeRun, infoCalls *int32) *AimClient {
+	t.Helper()
+	return fakeAimFull(t, runs, infoCalls, nil)
+}
+
+func fakeAimFull(t *testing.T, runs []fakeRun, infoCalls, listCalls *int32) *AimClient {
 	t.Helper()
 
 	// Bucket runs by experiment, assigning stable IDs.
@@ -78,7 +95,22 @@ func fakeAimCounting(t *testing.T, runs []fakeRun, infoCalls *int32) *AimClient 
 	dispatch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
+		case strings.HasPrefix(path, "/api/runs/search/run/"):
+			q := r.URL.Query().Get("q")
+			var matched []fakeRun
+			for _, list := range byExp {
+				for _, fr := range list {
+					if matchesAimQuery(fr, q) {
+						matched = append(matched, fr)
+					}
+				}
+			}
+			_, _ = w.Write(encodeSearchFromFakeRuns(matched))
+
 		case path == "/api/experiments/" || path == "/api/experiments":
+			if listCalls != nil {
+				atomic.AddInt32(listCalls, 1)
+			}
 			out := make([]Experiment, 0, len(expIDs))
 			for name, id := range expIDs {
 				out = append(out, Experiment{
@@ -91,6 +123,9 @@ func fakeAimCounting(t *testing.T, runs []fakeRun, infoCalls *int32) *AimClient 
 			_ = json.NewEncoder(w).Encode(out)
 
 		case strings.HasPrefix(path, "/api/experiments/") && strings.HasSuffix(path, "/runs/"):
+			if listCalls != nil {
+				atomic.AddInt32(listCalls, 1)
+			}
 			id := strings.TrimSuffix(strings.TrimPrefix(path, "/api/experiments/"), "/runs/")
 			name, ok := idToName[id]
 			if !ok {
@@ -166,4 +201,136 @@ func makeHandlerWithAim(t *testing.T, aim *AimClient) *Handler {
 // matches Aim's serialization.
 func unixSecs(t time.Time) float64 {
 	return float64(t.Unix()) + float64(t.Nanosecond())/1e9
+}
+
+// --- a minimal Aim-format encoder, for building fake search responses ---
+
+func encFrame(b []byte) []byte {
+	out := make([]byte, 4+len(b))
+	binary.LittleEndian.PutUint32(out[:4], uint32(len(b)))
+	copy(out[4:], b)
+	return out
+}
+
+func encPath(segs ...any) []byte {
+	var out []byte
+	for _, s := range segs {
+		switch v := s.(type) {
+		case string:
+			out = append(out, []byte(v)...)
+			out = append(out, pathSentinel)
+		case int:
+			out = append(out, pathSentinel)
+			n := make([]byte, 8)
+			binary.BigEndian.PutUint64(n, uint64(v))
+			out = append(out, n...)
+			out = append(out, pathSentinel)
+		}
+	}
+	return out
+}
+
+func encVal(v any) []byte {
+	switch x := v.(type) {
+	case string:
+		return append([]byte{tagString}, []byte(x)...)
+	case bool:
+		b := byte(0)
+		if x {
+			b = 1
+		}
+		return []byte{tagBool, b}
+	case float64:
+		out := make([]byte, 9)
+		out[0] = tagFloat
+		binary.LittleEndian.PutUint64(out[1:], math.Float64bits(x))
+		return out
+	}
+	return []byte{tagNone}
+}
+
+// --- serving /api/runs/search/run/ from the same fakeRun fixtures ---
+//
+// So the handlers that switched from enumerating to querying (RUNSET-1)
+// are exercised by the SAME tests that pinned their behaviour before.
+// If an existing assertion needed editing to pass, either behaviour moved
+// or the test was over-fitted to the old implementation.
+
+// aimQueryTerm is one `run['tag'] == 'value'` equality.
+var aimQueryTerm = regexp.MustCompile(`run\['([^']+)'\] == '((?:[^'\\]|\\.)*)'`)
+
+// matchesAimQuery reports whether a run satisfies every equality in q.
+// Only the subset the hub builds is understood: tag equalities joined by
+// `and`, plus run.experiment and run.name.
+func matchesAimQuery(fr fakeRun, q string) bool {
+	matched := false
+	for _, m := range aimQueryTerm.FindAllStringSubmatch(q, -1) {
+		matched = true
+		tag, want := m[1], strings.NewReplacer(`\'`, `'`, `\\`, `\`).Replace(m[2])
+		if fmt.Sprint(tagValue(fr, tag)) != want {
+			return false
+		}
+	}
+	if m := regexp.MustCompile(`run\.experiment == '([^']*)'`).FindStringSubmatch(q); m != nil {
+		matched = true
+		if fr.experiment != m[1] {
+			return false
+		}
+	}
+	if m := regexp.MustCompile(`run\.name == '([^']*)'`).FindStringSubmatch(q); m != nil {
+		matched = true
+		if fr.displayName() != m[1] {
+			return false
+		}
+	}
+	return matched
+}
+
+// tagValue reads a tag from a fakeRun's params, honouring both the flat
+// and nested layouts Aim uses — the same two shapes
+// AstrolabeTagsFromParams handles.
+func tagValue(fr fakeRun, tag string) any {
+	if v, ok := fr.tags[tag]; ok {
+		return v
+	}
+	if nested, ok := fr.tags["astrolabe"].(map[string]any); ok {
+		if v, ok := nested[strings.TrimPrefix(tag, "astrolabe.")]; ok {
+			return v
+		}
+	}
+	return nil
+}
+
+// encodeSearchFromFakeRuns renders matching runs in Aim's wire format,
+// including their params so tag-reading handlers see what they expect.
+func encodeSearchFromFakeRuns(runs []fakeRun) []byte {
+	var out []byte
+	add := func(path, val []byte) {
+		out = append(out, encFrame(path)...)
+		out = append(out, encFrame(val)...)
+	}
+	for _, fr := range runs {
+		out = append(out, encFrame(encPath(fr.hash, "props", "name"))...)
+		out = append(out, encFrame(encVal(fr.displayName()))...)
+		add(encPath(fr.hash, "props", "archived"), encVal(fr.archived))
+		add(encPath(fr.hash, "props", "creation_time"), encVal(fr.creationTime))
+		add(encPath(fr.hash, "props", "experiment", "name"), encVal(fr.experiment))
+		for k, v := range fr.tags {
+			if s, ok := v.(string); ok {
+				add(encPath(fr.hash, "params", k), encVal(s))
+			}
+			// The nested layout: astrolabe -> {kind: ..., ...}
+			if nested, ok := v.(map[string]any); ok {
+				for nk, nv := range nested {
+					if s, ok := nv.(string); ok {
+						add(encPath(fr.hash, "params", k+"."+nk), encVal(s))
+					}
+				}
+			}
+		}
+	}
+	// A streaming marker, so every search in every test exercises the
+	// filter that drops it.
+	add(encPath("progress_0", "x"), encVal("ignored"))
+	return out
 }
