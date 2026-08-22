@@ -14,23 +14,11 @@ type Handler struct {
 	aim    *AimClient
 	state  *StateReader
 	colors []string
-	// Where astrolabe's `samples export` writes its manifests. Optional:
-	// a NUC that has never exported a batch still serves every other route.
-	samplesDir string
 }
 
 // NewHandler creates a Handler with the given Aim client, state reader, and color palette.
 func NewHandler(aim *AimClient, state *StateReader, colors []string) *Handler {
 	return &Handler{aim: aim, state: state, colors: colors}
-}
-
-// WithSamplesDir points the handler at astrolabe's sample export directory.
-//
-// Chained rather than a fourth constructor argument so the five existing
-// call sites that have nothing to do with samples stay untouched.
-func (h *Handler) WithSamplesDir(dir string) *Handler {
-	h.samplesDir = dir
-	return h
 }
 
 // --- JSON response types ---
@@ -90,13 +78,13 @@ type RunDetail struct {
 	Kind string `json:"kind,omitempty"`
 	// True when this row is here because the experiment evaluated the
 	// model, not because the experiment produced it.
-	Evaluated bool `json:"evaluated,omitempty"`
-	CreationTime   float64       `json:"creation_time"`
-	EndTime        float64       `json:"end_time"`
-	Active         bool          `json:"active"`
-	Duration       string        `json:"duration"`
-	Metrics        []MetricEntry `json:"metrics"`
-	FinalLoss      *float64      `json:"final_loss"`
+	Evaluated    bool          `json:"evaluated,omitempty"`
+	CreationTime float64       `json:"creation_time"`
+	EndTime      float64       `json:"end_time"`
+	Active       bool          `json:"active"`
+	Duration     string        `json:"duration"`
+	Metrics      []MetricEntry `json:"metrics"`
+	FinalLoss    *float64      `json:"final_loss"`
 	// v1.2.0 — see RunSummary for the same notes.
 	Version  string `json:"version,omitempty"`
 	SubmitID string `json:"submit_id,omitempty"`
@@ -105,9 +93,9 @@ type RunDetail struct {
 }
 
 type MetricResponse struct {
-	Name      string    `json:"name"`
-	Steps     []int     `json:"steps"`
-	Values    []float64 `json:"values"`
+	Name   string    `json:"name"`
+	Steps  []int     `json:"steps"`
+	Values []float64 `json:"values"`
 	// WallTimes — elapsed seconds since run start at each step. Populated
 	// when the run's wall_time metric is available (the AstrolabeLogger
 	// callback writes it). Omitted when missing — frontend falls back
@@ -270,7 +258,7 @@ func (h *Handler) aimRunIndex() (
 //
 // GET /api/experiments
 //
-// Groups SQLite submits by ``experiment_name`` and emits the newest
+// Groups SQLite submits by “experiment_name“ and emits the newest
 // submit per group as the representative. Before the SQLite cutover,
 // state files were one-per-experiment-name (last-write-wins), so
 // iterating them gave one row per experiment "for free"; after the
@@ -278,8 +266,8 @@ func (h *Handler) aimRunIndex() (
 // explicitly — otherwise an experiment with five versions appears as
 // five duplicate rows on the home page.
 //
-// ``version_count`` is the number of distinct ``version`` values in
-// the SQLite group, not the count of ``astrolabe.version`` tags on
+// “version_count“ is the number of distinct “version“ values in
+// the SQLite group, not the count of “astrolabe.version“ tags on
 // Aim runs. Backfilled metadata-only submits (no composer training
 // run in Aim) would otherwise be undercounted.
 func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
@@ -581,16 +569,16 @@ func (h *Handler) evaluatedModelDetails(evaluated, produced map[string]bool) []R
 // Resolution order (first match wins):
 //
 //  1. Hash       — input matches /^[a-f0-9]{16,}$/. Treated as an Aim run
-//                  hash and looked up directly. Single-run include.
+//     hash and looked up directly. Single-run include.
 //  2. Experiment — input exact-matches an Aim experiment name. Multi-run
-//                  include (every run of that experiment).
+//     include (every run of that experiment).
 //  3. Run name   — input exact-matches an Aim run.name across all
-//                  experiments. Pulls every matching run; type becomes
-//                  "run-name-multi" when matches span >1 experiment so
-//                  the frontend can flag the wider scope.
+//     experiments. Pulls every matching run; type becomes
+//     "run-name-multi" when matches span >1 experiment so
+//     the frontend can flag the wider scope.
 //  4. Unknown    — no match. Returned with type="unknown" and an empty
-//                  Runs slice so the frontend can render a struck-out
-//                  chip rather than silently dropping the include.
+//     Runs slice so the frontend can render a struck-out
+//     chip rather than silently dropping the include.
 //
 // GET /api/experiments/{name}/includes[?version=vN]
 //
@@ -850,11 +838,11 @@ type EvalManifestEntry struct {
 // GET /api/runs/{model_run_hash}/evals
 // → [{ aim_run_hash, task_set, creation_time }, ...]
 //
-// Discovery filters Aim runs by ``astrolabe.kind == "eval"`` and
-// ``astrolabe.model_run_hash == <hash>``. Multiple eval runs for the
+// Discovery filters Aim runs by “astrolabe.kind == "eval"“ and
+// “astrolabe.model_run_hash == <hash>“. Multiple eval runs for the
 // same (model_run, task_set) collapse to the newest by creation_time
 // (re-eval over time leaves older runs in Aim for forensics; the
-// dashboard shows the latest by default). See ``plans/eval-runs.md``
+// dashboard shows the latest by default). See “plans/eval-runs.md“
 // for the broader discovery contract.
 func (h *Handler) HandleRunEvals(w http.ResponseWriter, r *http.Request) {
 	modelRunHash := extractPathParam(r.URL.Path, "/api/runs/", "/evals")

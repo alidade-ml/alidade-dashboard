@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -389,4 +390,197 @@ func (c *AimClient) GetMetric(runHash string, metricName string, context map[str
 		}, nil
 	}
 	return &results[0], nil
+}
+
+// --- Object sequences: text and image payloads ---
+//
+// Same request shape as GetMetric, different decoder. Aim serves
+// metrics as JSON and objects as an encoded tree; see aim_encoding.go.
+
+// ObjectRecord is one value in an object sequence.
+//
+// Which fields are populated depends on the sequence type. Text arrives
+// inline in Text; images arrive as metadata plus a BlobURI, because Aim
+// registers image routes with resolve_blobs=False.
+type ObjectRecord struct {
+	Text    string
+	BlobURI string
+	Format  string
+	Width   int64
+	Height  int64
+	Caption string
+}
+
+// ObjectSequence is one decoded get-batch response.
+//
+// Steps and Records are parallel: Records[i] was logged at Steps[i].
+// Callers join on the STEP, never on the index — two sequences of the
+// same run need not share a step set.
+type ObjectSequence struct {
+	Name    string
+	Steps   []int64
+	Records []ObjectRecord
+}
+
+// At returns the record logged at the given step.
+func (s *ObjectSequence) At(step int64) (ObjectRecord, bool) {
+	for i, st := range s.Steps {
+		if st == step {
+			return s.Records[i], true
+		}
+	}
+	return ObjectRecord{}, false
+}
+
+// GetTextSequence fetches a text sequence. One hop: Aim configures
+// TextApiConfig with resolve_blobs=True, so the text is inline.
+func (c *AimClient) GetTextSequence(runHash, name string) (*ObjectSequence, error) {
+	return c.getObjectSequence(runHash, "texts", name)
+}
+
+// GetImageSequence fetches image METADATA and blob URIs. No pixels:
+// ImageApiConfig sets resolve_blobs=False. Resolve with GetBlobs.
+func (c *AimClient) GetImageSequence(runHash, name string) (*ObjectSequence, error) {
+	return c.getObjectSequence(runHash, "images", name)
+}
+
+func (c *AimClient) getObjectSequence(runHash, seqType, name string) (*ObjectSequence, error) {
+	url := fmt.Sprintf("%s/api/runs/%s/%s/get-batch/", c.baseURL, runHash, seqType)
+	reqBody := []map[string]interface{}{{"name": name, "context": map[string]interface{}{}}}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling request: %w", err)
+	}
+	resp, err := c.httpClient.Post(url, "application/json", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("aim API unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("aim API returned %d for %s sequence %q on run %s",
+			resp.StatusCode, seqType, name, runHash)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s sequence: %w", seqType, err)
+	}
+	return ParseObjectSequence(raw)
+}
+
+// ParseObjectSequence turns a decoded get-batch body into a sequence.
+//
+// Exported so tests can run it over a captured response with no server.
+// The paths it reads, from a real body:
+//
+//	name                     -> "sample/completions/input"
+//	iters/<i>                -> the step of record i
+//	values/<i>/0/data        -> text, or image bytes when resolved
+//	values/<i>/0/blob_uri    -> image, unresolved
+//	values/<i>/0/format|width|height|caption
+//
+// The trailing 0 is the index within a record collection: one log call
+// can carry a list of images. Only index 0 is read here — rendering a
+// list within one step is not something log_samples produces.
+func ParseObjectSequence(body []byte) (*ObjectSequence, error) {
+	entries, err := DecodeTree(body)
+	if err != nil {
+		return nil, err
+	}
+	seq := &ObjectSequence{}
+	byIndex := map[int64]*ObjectRecord{}
+	steps := map[int64]int64{} // record index -> step
+
+	record := func(i int64) *ObjectRecord {
+		if r, ok := byIndex[i]; ok {
+			return r
+		}
+		r := &ObjectRecord{}
+		byIndex[i] = r
+		return r
+	}
+
+	for _, e := range entries {
+		if len(e.Path) == 1 {
+			if key, ok := e.Path[0].(string); ok && key == "name" {
+				if s, ok := e.Value.(string); ok {
+					seq.Name = s
+				}
+			}
+			continue
+		}
+		head, _ := e.Path[0].(string)
+		switch head {
+		case "iters":
+			idx, ok := e.Path[1].(int64)
+			if !ok || len(e.Path) != 2 {
+				continue
+			}
+			step, ok := e.Value.(int64)
+			if !ok {
+				continue
+			}
+			steps[idx] = step
+			record(idx)
+		case "values":
+			idx, ok := e.Path[1].(int64)
+			if !ok || len(e.Path) != 4 {
+				continue
+			}
+			field, ok := e.Path[3].(string)
+			if !ok {
+				continue
+			}
+			r := record(idx)
+			switch field {
+			case "data":
+				switch v := e.Value.(type) {
+				case string:
+					r.Text = v
+				}
+			case "blob_uri":
+				if s, ok := e.Value.(string); ok {
+					r.BlobURI = s
+				}
+			case "format":
+				if s, ok := e.Value.(string); ok {
+					r.Format = s
+				}
+			case "caption":
+				if s, ok := e.Value.(string); ok {
+					r.Caption = s
+				}
+			case "width":
+				if n, ok := e.Value.(int64); ok {
+					r.Width = n
+				}
+			case "height":
+				if n, ok := e.Value.(int64); ok {
+					r.Height = n
+				}
+			}
+		}
+	}
+
+	// Iterate the indexes that exist and sort them, rather than counting
+	// 0..max. The max comes off the wire: a mis-decoded path integer
+	// makes it astronomically large and the counting loop hangs the
+	// handler. Found by a mutation that flipped the path byte order.
+	indexes := make([]int64, 0, len(byIndex))
+	for i := range byIndex {
+		indexes = append(indexes, i)
+	}
+	sort.Slice(indexes, func(a, b int) bool { return indexes[a] < indexes[b] })
+
+	for _, i := range indexes {
+		step, ok := steps[i]
+		if !ok {
+			// A value with no matching iters entry has no step, so it
+			// cannot be paired with anything. Dropping it is better than
+			// inventing a step from its position.
+			continue
+		}
+		seq.Steps = append(seq.Steps, step)
+		seq.Records = append(seq.Records, *byIndex[i])
+	}
+	return seq, nil
 }
