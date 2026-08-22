@@ -872,17 +872,35 @@ function VersionBadge({ versionCount, runCount }: { versionCount: number; runCou
   // Cardinality cue — make it obvious that one row = N versions of an
   // experiment, and each version typically holds multiple runs (e.g.
   // BERT + LatentBERT). Both numbers are useful at a scan: ×N v says
-  // "this has been re-run N times", "M runs" says "M training jobs total."
+  // "this has been re-run N times", "M runs" says "M models trained."
+  //
+  // Zero renders as an em dash, not as "0 r". An eval-only submit
+  // legitimately trains nothing, and a run Aim has not indexed is
+  // invisible to the count that produces this number — the two are
+  // indistinguishable here, so the badge declines to assert either.
+  const known = runCount > 0;
   return (
     <span
       className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
-      title={`${versionCount} version${versionCount === 1 ? "" : "s"} · ${runCount} run${runCount === 1 ? "" : "s"} total`}
+      title={
+        `${versionCount} version${versionCount === 1 ? "" : "s"} · ` +
+        (known
+          ? `${runCount} model${runCount === 1 ? "" : "s"} trained`
+          : "no models trained here") +
+        " (excludes eval, sample and metadata runs)"
+      }
     >
       <span className="text-tabular text-foreground font-medium">×{versionCount}</span>
       <span className="opacity-60">v</span>
       <span className="opacity-40">·</span>
-      <span className="text-tabular text-muted-foreground">{runCount}</span>
-      <span className="opacity-60">r</span>
+      {known ? (
+        <>
+          <span className="text-tabular text-muted-foreground">{runCount}</span>
+          <span className="opacity-60">r</span>
+        </>
+      ) : (
+        <span className="text-muted-foreground opacity-60">—</span>
+      )}
     </span>
   );
 }
