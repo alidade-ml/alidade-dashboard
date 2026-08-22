@@ -19,7 +19,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 )
 
 // Contract literals. These are copied from astrolabe's contract.py and
@@ -79,16 +78,31 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Which experiment is the model run in? One call, and it also
-	// establishes the run exists.
-	modelInfo, err := h.aim.GetRunInfo(modelRunHash)
-	if errors.Is(err, ErrRunNotFound) {
-		// A hash Aim does not know is the caller's mistake, and a
-		// different fact from "no samples" or "Aim is down". The old
-		// scan could not tell them apart: it returned [] for a typo.
-		http.Error(w, "run not found", http.StatusNotFound)
+	// Confirm the run exists before answering about it. The query below
+	// cannot tell "this hash has no sample batches" from "this hash is
+	// not a run at all", and returning [] for a typo is exactly the
+	// ambiguity EXAMPLES-1.01b removed. One extra request, and the same
+	// one the hash-shaped include path already makes.
+	if _, err := h.aim.GetRunInfo(modelRunHash); err != nil {
+		if errors.Is(err, ErrRunNotFound) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+
+	// One query. Cross-experiment on purpose, and that is a change from
+	// EXAMPLES-1.01b: that slice narrowed discovery to the model run's
+	// own experiment because a project-wide walk was the only
+	// alternative, and it recorded the resulting gap — a batch logged
+	// with no submit in scope files under "sample/<set>" and became
+	// invisible. Asking by tag has no reason to care which experiment a
+	// batch is in, so the gap closes.
+	runs, err := h.aim.SearchRuns(QueryByTags(map[string]string{
+		TagKind:         SampleKind,
+		TagModelRunHash: modelRunHash,
+	}))
 	if err != nil {
 		// 502 rather than an empty list. An empty list reads as "this
 		// run has no samples", which is a plausible and wrong answer —
@@ -96,69 +110,24 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	// No guard on an empty experiment ID. Aim always places a run in an
-	// experiment, so an empty one means a malformed info response, and
-	// letting that fall through to a 502 is the honest answer — an early
-	// return of [] would report "no samples" for a broken dependency.
-	expRuns, err := h.aim.ListExperimentRuns(modelInfo.Props.Experiment.ID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
 
-	type candidate struct {
-		hash         string
-		creationTime float64
-	}
-	var candidates []candidate
-	for _, ar := range expRuns.Runs {
-		if ar.Archived || ar.RunID == modelRunHash {
+	entries := make([]SampleManifestEntry, 0, len(runs))
+	for _, run := range runs {
+		if run.Archived {
 			continue
 		}
-		candidates = append(candidates, candidate{
-			hash:         ar.RunID,
-			creationTime: ar.CreationTime,
+		tags := AstrolabeTagsFromParams(run.Params)
+		// Re-check what the query asked for — see HandleRunEvals.
+		if tags.Kind != SampleKind || tags.ModelRunHash != modelRunHash {
+			continue
+		}
+		entries = append(entries, SampleManifestEntry{
+			AimRunHash:   run.Hash,
+			SampleSet:    tags.SampleSet,
+			ModelRunHash: tags.ModelRunHash,
+			CreationTime: run.CreationTime,
 		})
 	}
-
-	// One GetRunInfo per candidate is unavoidable — the tags live in
-	// params — so fan out. The count is now the experiment's runs
-	// rather than the project's.
-	type indexed struct {
-		e  SampleManifestEntry
-		ok bool
-	}
-	results := make(chan indexed, len(candidates))
-	var wg sync.WaitGroup
-	for _, c := range candidates {
-		wg.Add(1)
-		go func(c candidate) {
-			defer wg.Done()
-			info, err := h.aim.GetRunInfo(c.hash)
-			if err != nil {
-				results <- indexed{ok: false}
-				return
-			}
-			tags := AstrolabeTagsFromParams(info.Params)
-			if tags.Kind != SampleKind || tags.ModelRunHash != modelRunHash {
-				results <- indexed{ok: false}
-				return
-			}
-			results <- indexed{
-				e: SampleManifestEntry{
-					AimRunHash:   c.hash,
-					SampleSet:    tags.SampleSet,
-					ModelRunHash: tags.ModelRunHash,
-					CreationTime: c.creationTime,
-				},
-				ok: true,
-			}
-		}(c)
-	}
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
 
 	// Newest wins per sample_set. Re-running a sampling script mints a
 	// new Aim run with the same tags; two batches under one label render
@@ -169,18 +138,15 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 	// out to matter, the fix is an ?all=true parameter, not a different
 	// default.
 	newestBySet := map[string]SampleManifestEntry{}
-	for res := range results {
-		if !res.ok {
-			continue
-		}
+	for _, e := range entries {
 		// A batch with no sample_set cannot be labelled, and an unlabelled
 		// block is worse than an absent one.
-		if res.e.SampleSet == "" {
+		if e.SampleSet == "" {
 			continue
 		}
-		if existing, found := newestBySet[res.e.SampleSet]; !found ||
-			res.e.CreationTime > existing.CreationTime {
-			newestBySet[res.e.SampleSet] = res.e
+		if existing, found := newestBySet[e.SampleSet]; !found ||
+			e.CreationTime > existing.CreationTime {
+			newestBySet[e.SampleSet] = e
 		}
 	}
 
