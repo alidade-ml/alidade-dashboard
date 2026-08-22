@@ -416,6 +416,13 @@ func (h *Handler) HandleExperimentRuns(w http.ResponseWriter, r *http.Request) {
 					// model is a row, and may live elsewhere.
 					results <- result{index: idx, evaluates: tags.ModelRunHash}
 					return
+				case "sample":
+					// Not a row either — the Examples tab renders it, and
+					// its model is the row. Missing from this switch until
+					// RUNKIND-1: eval and metadata were handled when they
+					// were introduced, sample was not.
+					results <- result{index: idx}
+					return
 				case "metadata":
 					// Engine-written cost run; carries no metrics.
 					results <- result{index: idx}

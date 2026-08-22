@@ -495,65 +495,6 @@ function SectionView({ section, depth }: { section: PlannedSection; depth: numbe
  *  later is a prop swap. It is not reused directly here because RunsPanel
  *  takes twelve props of comparison-modal and version-chip state that this
  *  route has no business faking. */
-function ModelLegend({
-  models,
-  hidden,
-  onToggle,
-  onShowAll,
-}: {
-  models: string[];
-  hidden: Set<string>;
-  onToggle: (model: string) => void;
-  onShowAll: () => void;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card">
-      <header className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-foreground">Models</h2>
-        {hidden.size > 0 && (
-          <button
-            type="button"
-            onClick={onShowAll}
-            className="ml-auto text-[10px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            show all
-          </button>
-        )}
-      </header>
-      <ul className="flex flex-col p-1.5">
-        {models.map((model) => {
-          const off = hidden.has(model);
-          return (
-            <li key={model}>
-              <button
-                type="button"
-                onClick={() => onToggle(model)}
-                aria-pressed={!off}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors",
-                  "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  off && "opacity-45",
-                )}
-              >
-                <span
-                  className={cn("h-2.5 w-2.5 shrink-0 rounded-sm border", off && "bg-transparent!")}
-                  style={{
-                    background: MODEL_COLORS[model],
-                    borderColor: MODEL_COLORS[model],
-                  }}
-                />
-                <span className="min-w-0 flex-1 truncate text-xs text-foreground">{model}</span>
-                <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                  {MODEL_HASHES[model]?.slice(0, 8)}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
 
 // ------------------------------------------------------------------ tab
 
@@ -587,10 +528,10 @@ export function SamplesView({
   bare,
 }: SamplesViewProps) {
   const [view, setView] = useState<SampleView>(() => viewFor(VIEWS[0]));
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
 
-  const models = useMemo(() => distinct(allRows, "model"), [allRows]);
-  const rows = useMemo(() => allRows.filter((r) => !hidden.has(r.model)), [allRows, hidden]);
+  // Filtering by model happens upstream now: the caller passes only the
+  // runs the shared panel has left visible.
+  const rows = allRows;
 
   // Every layout decision happens here, in one testable place. The components
   // below render the result and decide nothing — see sample-grouping.test.ts,
@@ -627,12 +568,6 @@ export function SamplesView({
     main = empty ?? (
       <div className="rounded-lg border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground">
         No samples logged for these runs.
-      </div>
-    );
-  } else if (rows.length === 0) {
-    main = (
-      <div className="rounded-lg border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground">
-        Every model is hidden. Turn one back on in the legend.
       </div>
     );
   } else {
@@ -680,17 +615,11 @@ export function SamplesView({
       <div className="flex w-full shrink-0 flex-col gap-3 lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:w-72 lg:overflow-y-auto">
         <SampleGroupingPanel view={view} onChange={setView} />
         {controls}
-        <ModelLegend
-          models={models}
-          hidden={hidden}
-          onToggle={(m) => {
-            const next = new Set(hidden);
-            if (next.has(m)) next.delete(m);
-            else next.add(m);
-            setHidden(next);
-          }}
-          onShowAll={() => setHidden(new Set())}
-        />
+        {/* No model legend here. The shared RunsPanel beside this column is
+            already the legend — same colour dots, same toggle — and two
+            controls doing overlapping jobs at different granularity on one
+            page is worse than one doing it at the wrong granularity. Hiding
+            a run there hides it here, as on Training and Eval. */}
       </div>
     </div>
   );
