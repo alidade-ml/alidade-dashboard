@@ -262,8 +262,46 @@ var aimQueryTerm = regexp.MustCompile(`run\['([^']+)'\] == '((?:[^'\\]|\\.)*)'`)
 // matchesAimQuery reports whether a run satisfies every equality in q.
 // Only the subset the hub builds is understood: tag equalities joined by
 // `and`, plus run.experiment and run.name.
+// aimNotInTerm matches `run['<tag>'] not in ['a','b']`.
+var aimNotInTerm = regexp.MustCompile(`run\['([^']*)'\] not in \[([^\]]*)\]`)
+
+// aimArchivedTerm matches `run.archived == True|False`.
+var aimArchivedTerm = regexp.MustCompile(`run\.archived == (True|False)`)
+
 func matchesAimQuery(fr fakeRun, q string) bool {
+	// Archived runs are hidden unless the query asks for them. This mirrors
+	// live Aim, where a plain `run.experiment == X` returns 5 of 6 runs and
+	// omits the archived one, and `run.archived == True` returns exactly it.
+	// Measured, not assumed — and asserted against a real server in
+	// TestAimContractSearchStillHidesArchivedRuns, which is what keeps this
+	// fake from quietly disagreeing with the thing it stands in for.
+	wantArchived := false
+	if m := aimArchivedTerm.FindStringSubmatch(q); m != nil {
+		wantArchived = m[1] == "True"
+	}
+	if fr.archived != wantArchived {
+		return false
+	}
+
 	matched := false
+	for _, m := range aimNotInTerm.FindAllStringSubmatch(q, -1) {
+		matched = true
+		tag := m[1]
+		have := tagValue(fr, tag)
+		for _, lit := range strings.Split(m[2], ",") {
+			lit = strings.Trim(strings.TrimSpace(lit), "'")
+			// A run with no value for the tag is NOT in any list, so it
+			// matches — the behaviour that keeps untagged legacy runs in
+			// the count, and the same behaviour that makes this query
+			// match everything on an unindexed repo.
+			if have != nil && fmt.Sprint(have) == lit {
+				return false
+			}
+		}
+	}
+	if aimArchivedTerm.MatchString(q) {
+		matched = true
+	}
 	for _, m := range aimQueryTerm.FindAllStringSubmatch(q, -1) {
 		matched = true
 		tag, want := m[1], strings.NewReplacer(`\'`, `'`, `\\`, `\`).Replace(m[2])
