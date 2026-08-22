@@ -946,3 +946,44 @@ func TestDiscoveryRechecksTagsWhenAimAnswersTooBroadly(t *testing.T) {
 		t.Errorf("eval discovery trusted a too-broad answer: %+v", gotEvals)
 	}
 }
+
+func TestSampleRunsAreNotRowsInTheExperimentRunList(t *testing.T) {
+	// RUNKIND-1. HandleExperimentRuns already excludes eval and metadata
+	// runs — "not a row itself" — and sample was simply never added to
+	// that switch. The visible effect was an experiment showing three
+	// rows, all displaying the experiment's name, for one model.
+	//
+	// Their real Aim names are empty; the API's display fallback paints
+	// them with the experiment name, which is why they looked like
+	// duplicates of the training run rather than like artifacts.
+	now := time.Now()
+	h := makeHandlerWithAim(t, fakeAim(t, []fakeRun{
+		{
+			experiment: fixtureExperiment, hash: "train1", name: "my-model",
+			creationTime: unixSecs(now),
+			tags:         map[string]any{},
+		},
+		makeSampleFakeRun("s1", "faces", "train1", now),
+		makeSampleFakeRun("s2", "captions", "train1", now),
+	}))
+
+	req := httptest.NewRequest("GET", "/api/experiments/"+fixtureExperiment+"/runs", nil)
+	rr := httptest.NewRecorder()
+	h.HandleExperimentRuns(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var runs []RunDetail
+	if err := json.NewDecoder(rr.Body).Decode(&runs); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range runs {
+		if r.Hash == "s1" || r.Hash == "s2" {
+			t.Errorf("a sample batch was listed as a comparable run: %+v", r)
+		}
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected only the training run, got %d: %+v", len(runs), runs)
+	}
+}
