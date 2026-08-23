@@ -22,10 +22,6 @@ import type { SampleBatch } from "./types.ts";
  */
 const API_BASE = "/api";
 
-export function sampleBlobUrl(uri: string, format = "png"): string {
-  return `${API_BASE}/samples/blob?uri=${encodeURIComponent(uri)}&format=${encodeURIComponent(format)}`;
-}
-
 /**
  * Turn one batch into rows the grouping logic already understands.
  *
@@ -36,8 +32,8 @@ export function sampleBlobUrl(uri: string, format = "png"): string {
  */
 export function rowsFromBatch(batch: SampleBatch, model: string, modelHash: string): SampleRow[] {
   return batch.pairs.map((pair) => {
-    const inputURI = pair.input_uri;
-    const outputURI = pair.output_uri;
+    const inputURL = pair.input_url;
+    const outputURL = pair.output_url;
     return {
       sampleSet: batch.sample_set,
       kind: batch.kind,
@@ -49,15 +45,15 @@ export function rowsFromBatch(batch: SampleBatch, model: string, modelHash: stri
       input:
         "input_text" in pair
           ? (pair.input_text ?? null)
-          : inputURI !== undefined
+          : inputURL !== undefined
             ? `step ${pair.step}`
             : null,
-      inputUrl: inputURI !== undefined ? sampleBlobUrl(inputURI) : undefined,
+      inputUrl: inputURL,
       model,
       modelHash,
       step: pair.step,
       output: "output_text" in pair ? pair.output_text : undefined,
-      outputUrl: outputURI !== undefined ? sampleBlobUrl(outputURI) : undefined,
+      outputUrl: outputURL,
     };
   });
 }

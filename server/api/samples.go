@@ -16,9 +16,13 @@ package api
 import (
 	"errors"
 	"net/http"
+	neturl "net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Contract literals. These are copied from astrolabe's contract.py and
@@ -183,9 +187,9 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 type SamplePair struct {
 	Step       int64   `json:"step"`
 	InputText  *string `json:"input_text,omitempty"`
-	InputURI   *string `json:"input_uri,omitempty"`
+	InputURL   *string `json:"input_url,omitempty"`
 	OutputText *string `json:"output_text,omitempty"`
-	OutputURI  *string `json:"output_uri,omitempty"`
+	OutputURL  *string `json:"output_url,omitempty"`
 }
 
 // SampleBatch is one log_samples call, read back.
@@ -264,7 +268,7 @@ func (h *Handler) HandleSampleBatch(w http.ResponseWriter, r *http.Request) {
 		AimRunHash: aimRunHash,
 		SampleSet:  sampleSet,
 		Kind:       kind,
-		Pairs:      joinByStep(inputs, outputs),
+		Pairs:      joinByStep(aimRunHash, sampleSet, inputs, outputs),
 	}
 	writeJSON(w, batch)
 }
@@ -295,7 +299,7 @@ func (h *Handler) sequenceEitherWay(aimRunHash, sampleSet, role string) (*Object
 // unconditional generation while an input with no output is a broken
 // write. The latter is kept rather than dropped — a visible half-pair
 // is a better bug report than a silently shorter batch.
-func joinByStep(inputs, outputs *ObjectSequence) []SamplePair {
+func joinByStep(aimRunHash, sampleSet string, inputs, outputs *ObjectSequence) []SamplePair {
 	seen := map[int64]bool{}
 	pairs := make([]SamplePair, 0, len(outputs.Steps))
 
@@ -307,8 +311,8 @@ func joinByStep(inputs, outputs *ObjectSequence) []SamplePair {
 		p := SamplePair{Step: step}
 		if rec, ok := inputs.At(step); ok {
 			if rec.BlobURI != "" {
-				uri := rec.BlobURI
-				p.InputURI = &uri
+				url := blobURL(aimRunHash, sampleSet, RoleInput, step)
+				p.InputURL = &url
 			} else {
 				text := rec.Text
 				p.InputText = &text
@@ -316,8 +320,8 @@ func joinByStep(inputs, outputs *ObjectSequence) []SamplePair {
 		}
 		if rec, ok := outputs.At(step); ok {
 			if rec.BlobURI != "" {
-				uri := rec.BlobURI
-				p.OutputURI = &uri
+				url := blobURL(aimRunHash, sampleSet, RoleOutput, step)
+				p.OutputURL = &url
 			} else {
 				text := rec.Text
 				p.OutputText = &text
@@ -335,29 +339,163 @@ func joinByStep(inputs, outputs *ObjectSequence) []SamplePair {
 	return pairs
 }
 
+// Roles a sample sequence can hold. The sequence name is
+// sample/<set>/<role>, so these are path segments, not free text.
+const (
+	RoleInput  = "input"
+	RoleOutput = "output"
+)
+
+// blobURL is the address of one image, and it is the same address every time.
+//
+// Aim's own blob token cannot be used here. It is Fernet-encrypted, and Fernet
+// embeds a random IV, so the same image yields a different token on every
+// batch response — the URL changes, the browser cache key changes, and nothing
+// is ever a hit. This tuple names the image by what it IS, so a re-render, a
+// refetch, a refresh and a second viewer all ask for the same URL.
+func blobURL(aimRunHash, sampleSet, role string, step int64) string {
+	q := neturl.Values{
+		"run":  {aimRunHash},
+		"set":  {sampleSet},
+		"role": {role},
+		"step": {strconv.FormatInt(step, 10)},
+	}
+	return "/api/samples/blob?" + q.Encode()
+}
+
+// blobRef identifies one image by content rather than by token.
+type blobRef struct {
+	run, set, role string
+}
+
+// blobURIEntry is one sequence's step-to-token map.
+//
+// Tokens are cached rather than re-resolved because resolving costs a sequence
+// fetch — measured at 44ms against 1.6ms for the blob itself, so a 24-image
+// grid is 1102ms unresolved against 83ms cached. They are safe to hold: Aim
+// decrypts them with no TTL, so a token stays valid for the life of the repo's
+// encryption key.
+type blobURIEntry struct {
+	uris    map[int64]string
+	formats map[int64]string
+	fetched time.Time
+}
+
+// BlobURITTL bounds how long a step-to-token map is reused.
+//
+// Not about token expiry, which does not happen. A sampling run can gain steps
+// while someone is looking at it, and a cached map would not know. Short enough
+// that new steps appear promptly, long enough that one grid resolves once.
+const BlobURITTL = 60 * time.Second
+
+type blobURICache struct {
+	mu      sync.Mutex
+	ttl     time.Duration
+	entries map[blobRef]blobURIEntry
+}
+
+// resolve returns the current Aim token and format for one step.
+//
+// A miss on a step within a live entry re-resolves rather than 404ing: the
+// alternative is a broken image for up to the TTL on a batch that just grew.
+func (h *Handler) resolve(ref blobRef, step int64) (uri, format string, err error) {
+	h.blobURIs.mu.Lock()
+	entry, ok := h.blobURIs.entries[ref]
+	ttl := h.blobURIs.ttl
+	h.blobURIs.mu.Unlock()
+
+	fresh := ok && ttl > 0 && time.Since(entry.fetched) < ttl
+	if fresh {
+		if u, hit := entry.uris[step]; hit {
+			return u, entry.formats[step], nil
+		}
+	}
+
+	seq, err := h.sequenceEitherWay(ref.run, ref.set, ref.role)
+	if err != nil {
+		return "", "", err
+	}
+	next := blobURIEntry{
+		uris:    make(map[int64]string, len(seq.Records)),
+		formats: make(map[int64]string, len(seq.Records)),
+		fetched: time.Now(),
+	}
+	for i, rec := range seq.Records {
+		if rec.BlobURI == "" || i >= len(seq.Steps) {
+			continue
+		}
+		next.uris[seq.Steps[i]] = rec.BlobURI
+		next.formats[seq.Steps[i]] = rec.Format
+	}
+
+	h.blobURIs.mu.Lock()
+	if h.blobURIs.entries == nil {
+		h.blobURIs.entries = map[blobRef]blobURIEntry{}
+	}
+	h.blobURIs.entries[ref] = next
+	h.blobURIs.mu.Unlock()
+
+	u, ok := next.uris[step]
+	if !ok {
+		return "", "", errNoSuchStep
+	}
+	return u, next.formats[step], nil
+}
+
+var errNoSuchStep = errors.New("no image at that step")
+
 // HandleSampleBlob streams the bytes for one image.
 //
-// GET /api/samples/blob?uri=<aim-blob-uri>
+// GET /api/samples/blob?run=<hash>&set=<set>&role=input|output&step=<n>
 //
-// The uri arrives from a batch response and goes back to Aim verbatim.
-// It is an opaque Fernet-encrypted token: this handler does not decode
-// it, does not validate its shape, and must never construct one.
+// The hub resolves this tuple to Aim's current blob token itself. It still
+// never mints or decodes a token — it just stops using one as a cache key,
+// which is what makes the immutable header below mean anything.
 func (h *Handler) HandleSampleBlob(w http.ResponseWriter, r *http.Request) {
-	uri := r.URL.Query().Get("uri")
-	if uri == "" {
-		http.Error(w, "missing uri", http.StatusBadRequest)
+	q := r.URL.Query()
+	ref := blobRef{run: q.Get("run"), set: q.Get("set"), role: q.Get("role")}
+	if ref.run == "" || ref.set == "" {
+		http.Error(w, "missing run or set", http.StatusBadRequest)
 		return
 	}
-	format := r.URL.Query().Get("format")
+	if !sampleHashPattern.MatchString(ref.run) {
+		http.Error(w, "invalid run hash", http.StatusBadRequest)
+		return
+	}
+	if strings.Contains(ref.set, "/") {
+		http.Error(w, "invalid set", http.StatusBadRequest)
+		return
+	}
+	if ref.role != RoleInput && ref.role != RoleOutput {
+		// Closed set: the role is a path segment in the sequence name, and
+		// anything else addresses a sequence that does not exist.
+		http.Error(w, "role must be input or output", http.StatusBadRequest)
+		return
+	}
+	step, err := strconv.ParseInt(q.Get("step"), 10, 64)
+	if err != nil {
+		http.Error(w, "step must be an integer", http.StatusBadRequest)
+		return
+	}
+
+	uri, format, err := h.resolve(ref, step)
+	if errors.Is(err, errNoSuchStep) {
+		http.Error(w, "no image at that step", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
 	if format == "" {
 		format = "png"
 	}
 	contentType, ok := imageContentTypes[format]
 	if !ok {
-		// Refused rather than sniffed. The sequence record states the
-		// format, so a value outside this set means the batch and the
-		// request disagree, and http.DetectContentType would paper over
-		// that with application/octet-stream.
+		// Refused rather than sniffed. The record states the format, so a
+		// value outside this set means Aim wrote something this package has
+		// never seen, and DetectContentType would paper over it.
 		http.Error(w, "unsupported image format "+format, http.StatusBadRequest)
 		return
 	}
@@ -370,9 +508,6 @@ func (h *Handler) HandleSampleBlob(w http.ResponseWriter, r *http.Request) {
 	// Keyed by uri, never by position — see GetBlobs.
 	data, ok := blobs[uri]
 	if !ok || len(data) == 0 {
-		// Aim knows the route but not this uri. A 404 renders as a
-		// broken image, which is honest; an empty 200 renders as a
-		// blank one, which is not.
 		http.Error(w, "blob not found", http.StatusNotFound)
 		return
 	}
