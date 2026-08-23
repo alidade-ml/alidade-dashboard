@@ -262,3 +262,104 @@ func TestNonRowKindsAreNotRows(t *testing.T) {
 		})
 	}
 }
+
+// --- /api/runs, the documented endpoint ---
+
+// TestHandleRunsAsksInsteadOfWalking is the same guard as the experiments
+// list, for the endpoint that kept the walk alive.
+//
+// /api/runs has no caller in this repo's frontend, but is published in
+// docs/alternative-frontends.md as API a third-party UI can build on. Since it
+// stays, it must not be the last thing walking the project.
+func TestHandleRunsAsksInsteadOfWalking(t *testing.T) {
+	var listCalls int32
+	h := NewHandler(fakeAimCountingLists(t, []fakeRun{
+		{experiment: "exp", hash: "t1", creationTime: 200,
+			tags: map[string]any{TagKind: "training"}},
+		{experiment: "exp", hash: "t2", creationTime: 100,
+			tags: map[string]any{TagKind: "training"}},
+	}, &listCalls), nil, nil)
+
+	req := httptest.NewRequest("GET", "/api/runs", nil)
+	rr := httptest.NewRecorder()
+	h.HandleRuns(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	if n := atomic.LoadInt32(&listCalls); n != 0 {
+		t.Errorf("made %d listing calls; want 0", n)
+	}
+}
+
+// TestHandleRunsKeepsItsDocumentedShape pins the fields
+// docs/alternative-frontends.md publishes. A consumer this repo cannot see
+// reads these names, so a rename has to fail here rather than in their UI.
+func TestHandleRunsKeepsItsDocumentedShape(t *testing.T) {
+	h := NewHandler(fakeAim(t, []fakeRun{
+		{experiment: "bert-pretrain", hash: "a1b2c3", name: "bert-tiny",
+			creationTime: 1745321780.5, endTime: 1745367020.3,
+			tags: map[string]any{
+				TagKind: "training", "astrolabe.version": "v3",
+				TagSubmitID: "abc-123-def", "astrolabe.user": "alice",
+			}},
+	}), nil, nil)
+
+	req := httptest.NewRequest("GET", "/api/runs", nil)
+	rr := httptest.NewRecorder()
+	h.HandleRuns(rr, req)
+
+	var got []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d runs, want 1", len(got))
+	}
+	for key, want := range map[string]any{
+		"hash": "a1b2c3", "name": "bert-tiny", "experiment": "bert-pretrain",
+		"active": false, "version": "v3", "submit_id": "abc-123-def",
+		"submitted_by": "alice",
+	} {
+		if got[0][key] != want {
+			t.Errorf("%s = %v, want %v — this field is published in "+
+				"docs/alternative-frontends.md", key, got[0][key], want)
+		}
+	}
+}
+
+// TestHandleRunsExcludesEvalAndMetadata pins the filter the previous
+// implementation applied, so "make it faster" did not quietly become "return
+// a different set". Sample runs are included, which is a quirk rather than a
+// design — correcting it belongs in a ticket that says so.
+func TestHandleRunsExcludesEvalAndMetadata(t *testing.T) {
+	h := NewHandler(fakeAim(t, []fakeRun{
+		{experiment: "exp", hash: "t1", tags: map[string]any{TagKind: "training"}},
+		{experiment: "exp", hash: "e1", tags: map[string]any{TagKind: "eval"}},
+		{experiment: "exp", hash: "m1", tags: map[string]any{TagKind: "metadata"}},
+		{experiment: "exp", hash: "s1", tags: map[string]any{TagKind: "sample"}},
+	}), nil, nil)
+
+	req := httptest.NewRequest("GET", "/api/runs", nil)
+	rr := httptest.NewRecorder()
+	h.HandleRuns(rr, req)
+	var got []RunSummary
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, r := range got {
+		seen[r.Hash] = r.Kind
+	}
+	if _, ok := seen["e1"]; ok {
+		t.Error("eval run leaked into /api/runs")
+	}
+	if _, ok := seen["m1"]; ok {
+		t.Error("metadata run leaked into /api/runs")
+	}
+	if kind, ok := seen["s1"]; !ok {
+		t.Error("sample run dropped from /api/runs — a behaviour change this " +
+			"ticket did not intend to make")
+	} else if kind != "sample" {
+		t.Errorf("sample run's kind = %q, want \"sample\"; consumers filter on it", kind)
+	}
+}
