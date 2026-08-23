@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	neturl "net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -285,6 +286,76 @@ func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, experiments)
+}
+
+// ExperimentDetail is the metadata one experiment's page renders in its header.
+//
+// Deliberately not ExperimentSummary: it carries no run count, so this endpoint
+// answers entirely from the state DB. The header — state, history, timing,
+// submitter — is SQLite data, and making it depend on an Aim search would mean
+// losing all of it whenever Aim is down, to supply a number this page never
+// displays.
+type ExperimentDetail struct {
+	Name         string            `json:"name"`
+	State        string            `json:"state"`
+	GPUType      string            `json:"gpu_type"`
+	StartedAt    string            `json:"started_at"`
+	Duration     string            `json:"duration"`
+	Outcome      string            `json:"outcome"`
+	Repo         string            `json:"repo,omitempty"`
+	LinearDocURL string            `json:"linear_doc_url,omitempty"`
+	VersionCount int               `json:"version_count"`
+	StateHistory []StateTransition `json:"state_history,omitempty"`
+	SubmittedBy  string            `json:"submitted_by,omitempty"`
+}
+
+// HandleExperimentDetail returns one experiment's header metadata.
+//
+// GET /api/experiments/{name}
+//
+// The page that renders this used to poll /api/experiments and pick its row out
+// of every experiment on the machine — 202 KB per poll at 300 experiments, for
+// one header.
+func (h *Handler) HandleExperimentDetail(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/experiments/")
+	if decoded, err := neturl.PathUnescape(name); err == nil {
+		name = decoded
+	}
+	if name == "" {
+		http.Error(w, "missing experiment name", http.StatusBadRequest)
+		return
+	}
+	if h.state == nil {
+		http.Error(w, "no state DB", http.StatusServiceUnavailable)
+		return
+	}
+
+	state, err := h.state.GetState(name)
+	if err != nil || state == nil {
+		// 404 rather than an empty 200: a blank header is indistinguishable
+		// from a slow load, and sends the reader to the wrong question.
+		http.NotFound(w, r)
+		return
+	}
+	versions, err := h.state.CountVersions(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, ExperimentDetail{
+		Name:         state.Name,
+		State:        state.State,
+		GPUType:      state.GPUType,
+		StartedAt:    state.StartedAt,
+		Duration:     stateDuration(state.StartedAt, state.FinishedAt),
+		Outcome:      state.Outcome,
+		Repo:         state.Repo,
+		LinearDocURL: state.LinearDocURL,
+		VersionCount: versions,
+		StateHistory: state.StateHistory,
+		SubmittedBy:  state.SubmittedBy,
+	})
 }
 
 // HandleExperimentRuns returns the runs an experiment's page should show.

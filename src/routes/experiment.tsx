@@ -7,7 +7,7 @@ import { api, DEFAULT_PALETTE } from "@/lib/api";
 import { isTrainingRun } from "@/lib/types";
 import type { Experiment, MetricSeries, Run } from "@/lib/types";
 import { usePolling } from "@/hooks/use-polling";
-import { formatDuration, formatRelative, formatTimestamp, isActiveState } from "@/lib/format";
+import { formatRelative, formatTimestamp, isActiveState } from "@/lib/format";
 import { CopyableHash } from "@/components/copyable-hash";
 import { cn } from "@/lib/utils";
 
@@ -98,14 +98,12 @@ function ExperimentBody({
 }) {
   const navigate = useNavigate();
 
-  // Experiments list (so we can find this experiment's metadata)
-  const expState = usePolling((signal) => api.experiments(signal), [], {
-    intervalMs: RUNS_POLL_MS,
-  });
-  const experiment: Experiment | undefined = useMemo(
-    () => expState.data?.find((e) => e.name === experimentName),
-    [expState.data, experimentName],
+  const expState = usePolling(
+    (signal) => api.experiment(experimentName, signal),
+    [experimentName],
+    { intervalMs: RUNS_POLL_MS },
   );
+  const experiment = expState.data ?? undefined;
 
   // Runs for this experiment — each run is one submitted "version".
   const runsState = usePolling((signal) => api.runs(experimentName, signal), [experimentName], {
@@ -454,7 +452,8 @@ function ExperimentBody({
   const allHidden = visibleRuns.every((r) => hiddenRuns.has(r.hash));
   const noneHidden = visibleRuns.every((r) => !hiddenRuns.has(r.hash));
 
-  const elapsed = experiment ? experiment.duration : 0;
+  // Already formatted by the Go API ("2h 15m"), not seconds.
+  const elapsed = experiment?.duration || "—";
   const live = experiment ? isActiveState(experiment.state) : false;
 
   return (
@@ -537,7 +536,7 @@ function ExperimentBody({
               </a>
             </div>
             <div className="mt-1.5 flex items-center gap-4 text-xs text-muted-foreground font-mono">
-              <span className="text-tabular">elapsed {formatDuration(elapsed)}</span>
+              <span className="text-tabular">elapsed {elapsed}</span>
               <span className="opacity-50">·</span>
               <span title={experiment?.started_at ? formatTimestamp(experiment.started_at) : ""}>
                 started {formatRelative(experiment?.started_at)}
