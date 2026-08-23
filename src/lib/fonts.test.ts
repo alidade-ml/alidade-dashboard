@@ -60,6 +60,21 @@ describe("fonts are self-hosted", () => {
     }
   });
 
+  it("declares faces directly, never by importing a fontsource stylesheet", () => {
+    // Those stylesheets list a .woff beside every .woff2. Vite emits the
+    // fallback whether or not anything fetches it, and nothing that can run this
+    // app lacks woff2 — it was 200kB of a 1.5MB bundle, larger than the woff2
+    // files it backed up.
+    const fonts = read("src", "brand", "fonts.css");
+    assert.doesNotMatch(
+      fonts,
+      /@import\s+["']@fontsource/,
+      "importing a fontsource stylesheet drags the .woff fallback back into the bundle",
+    );
+    assert.match(fonts, /@font-face/, "no faces are declared");
+    assert.doesNotMatch(fonts, /\.woff["')]/, "a .woff is referenced directly");
+  });
+
   it("references no external host from any stylesheet", () => {
     for (const rel of cssFiles()) {
       const css = read(rel);

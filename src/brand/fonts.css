@@ -2,21 +2,66 @@
    binary serves a missing asset as the SPA shell with a 200, so a font that
    fails to arrive degrades silently with nothing logged anywhere.
 
+   Declared by hand rather than by importing @fontsource's stylesheets, which
+   list a .woff fallback beside every .woff2. Nothing that can run this app needs
+   it — React 19 dropped the browsers that lack woff2 — and Vite emits the
+   fallback whether or not it is ever fetched, which was 200kB of the 1.5MB
+   bundle, more than the woff2 files it backs up.
+
    Latin subsets only, and only the weights the UI uses.
    Licences travel with the bundle at /FONT-LICENSES.txt (OFL section 2). */
 
-/* Display — headings and section labels. */
-@import "@fontsource/ysabeau/latin-500.css";
-@import "@fontsource/ysabeau/latin-600.css";
+@font-face {
+  font-family: "Ysabeau";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/ysabeau/files/ysabeau-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Ysabeau";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/ysabeau/files/ysabeau-latin-600-normal.woff2") format("woff2");
+}
 
-/* Body. Named in --font-sans since the frontend landed; now actually served. */
-@import "@fontsource/inter/latin-400.css";
-@import "@fontsource/inter/latin-500.css";
-@import "@fontsource/inter/latin-600.css";
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/inter/files/inter-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/inter/files/inter-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/inter/files/inter-latin-600-normal.woff2") format("woff2");
+}
 
-/* Mono — hashes, metrics, state badges. Same story as the body face. */
-@import "@fontsource/jetbrains-mono/latin-400.css";
-@import "@fontsource/jetbrains-mono/latin-500.css";
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2") format("woff2");
+}
 
 /* The wordmark only. A modified cut of Ysabeau holding the nine letters of the
    name, with the crossbar removed from A so it reads as the mark's letterform.
