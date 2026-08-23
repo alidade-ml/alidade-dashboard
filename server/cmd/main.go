@@ -67,6 +67,11 @@ func main() {
 	//     during eval pauses. Bounded LRU at 1000 entries (≈30 MB worst
 	//     case at ~30 KB per metric series) so a long-running NUC with
 	//     many experiments × many metrics can't OOM the dashboard.
+	//
+	//   - 30s on the experiments list's run counts, nested inside its 2s
+	//     window (api.DefaultRunCountTTL). They cost a repo-wide scan in Aim
+	//     and change only when a run is created. Set there rather than here
+	//     because it caches a value rather than a response.
 	experimentsCache := api.NewTTLCache(2*time.Second, 0)
 	experimentRunsCache := api.NewTTLCache(2*time.Second, 0)
 	metricSeriesCache := api.NewTTLCache(10*time.Second, 1000)

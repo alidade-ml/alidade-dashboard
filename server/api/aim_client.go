@@ -662,6 +662,21 @@ const (
 	TagExperiment   = "astrolabe.experiment"
 )
 
+// astrolabe.kind values the hub tests against. SampleKind lives in
+// samples.go with the sequence prefix it belongs beside.
+const (
+	KindEval     = "eval"
+	KindMetadata = "metadata"
+)
+
+// NonRowKinds are the kinds that are not a row on an experiment page:
+// eval runs render on the Eval tab, sample runs on the Examples tab, and
+// metadata runs are the engine's own cost bookkeeping.
+//
+// One list because there were two and they disagreed, which is how sample
+// runs came to be counted as models on the home page.
+var NonRowKinds = []string{KindEval, SampleKind, KindMetadata}
+
 // SearchedRun is one run from a search.
 //
 // Deliberately not the whole tree: a search returns everything about a
@@ -683,6 +698,57 @@ type SearchedRun struct {
 // rename is a compile error instead of a silently empty result.
 func QueryByTag(tag, value string) string {
 	return fmt.Sprintf("run[%s] == %s", quoteAimLiteral(tag), quoteAimLiteral(value))
+}
+
+// QueryKindNotIn builds `run['astrolabe.kind'] not in ['a','b']`.
+//
+// On a repo whose runs are indexed this matches exactly the complement. On one
+// whose runs are not, it matches everything: a run with no indexed params
+// satisfies a negative test. That is this query's failure direction, and why
+// callers must not render a zero as a confident answer.
+func QueryKindNotIn(kinds []string) string {
+	quoted := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		quoted = append(quoted, quoteAimLiteral(k))
+	}
+	sort.Strings(quoted)
+	return fmt.Sprintf("run[%s] not in [%s]", quoteAimLiteral(TagKind), strings.Join(quoted, ","))
+}
+
+// QueryNotArchived builds `run.archived == False`.
+//
+// Aim already excludes archived runs from search by default. The term is
+// explicit so the count does not rest on that default.
+func QueryNotArchived() string {
+	return "run.archived == False"
+}
+
+// ExperimentRunCounts returns, per Aim experiment name, how many runs that
+// experiment produced — the population an experiment page renders as rows.
+//
+// The count is index-backed, because Aim's search is. A run written while
+// aim-tracking was down is never indexed and never backfilled, so this query
+// will not see it: the count is a floor, and zero is not evidence of an empty
+// experiment.
+//
+// An empty map means no run matched, never "count everything".
+func (c *AimClient) ExperimentRunCounts() (map[string]int, error) {
+	q := QueryKindNotIn(NonRowKinds) + " and " + QueryNotArchived()
+	runs, err := c.searchRunsLean(q)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int)
+	for _, r := range runs {
+		if r.ExperimentName == "" {
+			// No experiment to attribute it to. Dropping it keeps the map
+			// keyed only by names a caller can look up; counting it under
+			// "" would inflate nothing visible and hide a real oddity.
+			continue
+		}
+		counts[r.ExperimentName]++
+	}
+	return counts, nil
 }
 
 // QueryByTags joins several tag equalities with `and`.
@@ -744,7 +810,22 @@ func quoteAimLiteral(s string) string {
 // silently falls back to the whole project is the failure that would make
 // this worse than the walk it replaces.
 func (c *AimClient) SearchRuns(q string) ([]SearchedRun, error) {
-	url := fmt.Sprintf("%s/api/runs/search/run/?q=%s", c.baseURL, neturl.QueryEscape(q))
+	return c.searchRuns(q, "")
+}
+
+// searchRunsLean is SearchRuns with everything a count does not need
+// switched off at the source.
+//
+// Measured against a 2,500-run repo: 99,969 bytes become 12,100, and the
+// experiment name a caller groups by survives the trim. Params do not —
+// so this is only for callers whose filtering happened server-side in the
+// query, and SearchedRun.Params comes back empty.
+func (c *AimClient) searchRunsLean(q string) ([]SearchedRun, error) {
+	return c.searchRuns(q, "&exclude_params=true&exclude_traces=true&report_progress=false")
+}
+
+func (c *AimClient) searchRuns(q, extra string) ([]SearchedRun, error) {
+	url := fmt.Sprintf("%s/api/runs/search/run/?q=%s%s", c.baseURL, neturl.QueryEscape(q), extra)
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("aim API unreachable: %w", err)

@@ -14,11 +14,65 @@ type Handler struct {
 	aim    *AimClient
 	state  *StateReader
 	colors []string
+
+	runCounts runCountCache
 }
 
 // NewHandler creates a Handler with the given Aim client, state reader, and color palette.
 func NewHandler(aim *AimClient, state *StateReader, colors []string) *Handler {
-	return &Handler{aim: aim, state: state, colors: colors}
+	h := &Handler{aim: aim, state: state, colors: colors}
+	h.runCounts.ttl = DefaultRunCountTTL
+	return h
+}
+
+// DefaultRunCountTTL is how long a run-count map is reused.
+//
+// The experiments list has two freshness classes. State and outcome change
+// constantly and sit behind the 2s response cache; run counts change only when
+// a run is created, and cost a repo-wide scan in Aim to recompute — most of it
+// spent scanning rather than matching, so no narrower query helps.
+//
+// The visible cost is that a new run takes up to 30s to appear in the badge.
+const DefaultRunCountTTL = 30 * time.Second
+
+// runCountCache memoises one map, not a keyed set of responses. Deliberately
+// not the TTLCache middleware, which keys on request URI and caches a whole
+// response; this is an inner value living behind a shorter-lived one.
+type runCountCache struct {
+	mu      sync.Mutex
+	ttl     time.Duration
+	counts  map[string]int
+	fetched time.Time
+}
+
+// SetRunCountTTL overrides the reuse window. Zero disables reuse, so a test
+// asserting twice does not measure its own first fetch.
+func (h *Handler) SetRunCountTTL(d time.Duration) {
+	h.runCounts.mu.Lock()
+	defer h.runCounts.mu.Unlock()
+	h.runCounts.ttl = d
+	h.runCounts.counts = nil
+}
+
+// experimentRunCounts returns the cached count map, refreshing it when stale.
+//
+// Errors propagate rather than degrading to an empty map: every row would then
+// render as having produced nothing, which a reader cannot tell apart from a
+// machine nobody has used.
+func (h *Handler) experimentRunCounts() (map[string]int, error) {
+	h.runCounts.mu.Lock()
+	defer h.runCounts.mu.Unlock()
+	if h.runCounts.counts != nil && h.runCounts.ttl > 0 &&
+		time.Since(h.runCounts.fetched) < h.runCounts.ttl {
+		return h.runCounts.counts, nil
+	}
+	counts, err := h.aim.ExperimentRunCounts()
+	if err != nil {
+		return nil, err
+	}
+	h.runCounts.counts = counts
+	h.runCounts.fetched = time.Now()
+	return counts, nil
 }
 
 // --- JSON response types ---
@@ -271,8 +325,13 @@ func (h *Handler) aimRunIndex() (
 // Aim runs. Backfilled metadata-only submits (no composer training
 // run in Aim) would otherwise be undercounted.
 func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
-	// Get Aim runs indexed by experiment name
-	aimByExp, _, _ := h.aimRunIndex()
+	runCounts, err := h.experimentRunCounts()
+	if err != nil {
+		// Not a degraded 200: a page of zero-run experiments sends the
+		// reader looking for their data rather than at the dashboard.
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
 
 	var experiments []ExperimentSummary
 
@@ -308,7 +367,6 @@ func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				seenName[s.Name] = struct{}{}
-				runs := aimByExp[s.Name]
 				experiments = append(experiments, ExperimentSummary{
 					Name:         s.Name,
 					State:        s.State,
@@ -316,7 +374,7 @@ func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
 					StartedAt:    s.StartedAt,
 					Duration:     stateDuration(s.StartedAt, s.FinishedAt),
 					Outcome:      s.Outcome,
-					RunCount:     len(runs),
+					RunCount:     runCounts[s.Name],
 					Repo:         s.Repo,
 					LinearDocURL: s.LinearDocURL,
 					VersionCount: len(versionsByName[s.Name]),
@@ -411,19 +469,17 @@ func (h *Handler) HandleExperimentRuns(w http.ResponseWriter, r *http.Request) {
 			if err == nil {
 				tags := AstrolabeTagsFromParams(info.Params)
 				switch tags.Kind {
-				case "eval":
+				case KindEval:
 					// Not a row itself — the Eval tab renders it. Its
 					// model is a row, and may live elsewhere.
 					results <- result{index: idx, evaluates: tags.ModelRunHash}
 					return
-				case "sample":
+				case SampleKind:
 					// Not a row either — the Examples tab renders it, and
-					// its model is the row. Missing from this switch until
-					// RUNKIND-1: eval and metadata were handled when they
-					// were introduced, sample was not.
+					// its model is the row.
 					results <- result{index: idx}
 					return
-				case "metadata":
+				case KindMetadata:
 					// Engine-written cost run; carries no metrics.
 					results <- result{index: idx}
 					return
@@ -615,8 +671,7 @@ func (h *Handler) HandleExperimentIncludes(w http.ResponseWriter, r *http.Reques
 	}
 
 	// One query per include, rather than an index of the whole project
-	// built once and thrown away. `aimRunIndex` stays for the two
-	// endpoints whose response IS every run — see RUNSET-1.02.
+	// built once and thrown away.
 	resolved := make([]IncludeEntry, 0, len(includeNames))
 	for _, incName := range includeNames {
 		resolved = append(resolved, h.resolveIncludeByQuery(incName))

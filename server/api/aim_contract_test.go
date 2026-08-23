@@ -32,9 +32,11 @@ package api
 
 import (
 	"flag"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 var (
@@ -189,4 +191,109 @@ func runPython(t *testing.T, body string) string {
 
 func pyQuote(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`).Replace(s) + `"`
+}
+
+// TestAimContractRunCountsExcludeWhatTheyClaim pins the query semantics
+// ExperimentRunCounts depends on, none of which Aim documents.
+//
+// The kinds below are written as LITERALS, deliberately. An earlier version
+// of this test built its fixture by ranging over NonRowKinds, so deleting an
+// entry deleted the run that would have caught the deletion — the test passed
+// with `sample` removed from the exclusion list. A test whose fixture comes
+// from the constant under test cannot fail. TestNonRowKindsMatchTheContract
+// is what ties these literals back to the production list.
+func TestAimContractRunCountsExcludeWhatTheyClaim(t *testing.T) {
+	client := requireLiveAim(t)
+	exp := "contract-counts-" + randSuffix(t)
+
+	// Must count: an ordinary training run, and a legacy run carrying no
+	// kind at all. Runs predate the tag, so a query that dropped untagged
+	// runs would undercount every old experiment.
+	writeKindedRunViaSDK(t, exp, "training")
+	writeKindedRunViaSDK(t, exp, "")
+	// Must not count.
+	writeKindedRunViaSDK(t, exp, "eval")
+	writeKindedRunViaSDK(t, exp, "sample")
+	writeKindedRunViaSDK(t, exp, "metadata")
+	archived := writeKindedRunViaSDK(t, exp, "training")
+	archiveRunViaSDK(t, archived)
+
+	counts, err := client.ExperimentRunCounts()
+	if err != nil {
+		t.Fatalf("ExperimentRunCounts against a live Aim: %v", err)
+	}
+	if got := counts[exp]; got != 2 {
+		t.Fatalf("counted %d runs in %s, want 2 (one training + one untagged). "+
+			"Above 2 means a kind filter stopped filtering or an archived run "+
+			"leaked in; below 2 means the untagged run was dropped or the "+
+			"index is stale.", got, exp)
+	}
+}
+
+// TestAimContractSearchStillHidesArchivedRuns is a test about Aim, not about
+// this package, and it exists because of what it found.
+//
+// ExperimentRunCounts sends `run.archived == False`. That term is currently a
+// no-op: measured against a live server, a plain `run.experiment == X` already
+// returns 5 of 6 runs, omitting the archived one, and adding the term changes
+// nothing. Archived runs come back only when a query asks for them
+// (`run.archived == True` returns exactly the one).
+//
+// The term stays, because a count that depends on an undocumented default is
+// a count that changes when the default does. But that makes it a guard that
+// cannot fail, so the default itself is asserted HERE instead. If Aim starts
+// including archived runs by default, this test fails and the count keeps
+// working — which is the right way round.
+func TestAimContractSearchStillHidesArchivedRuns(t *testing.T) {
+	client := requireLiveAim(t)
+	exp := "contract-archived-" + randSuffix(t)
+
+	writeKindedRunViaSDK(t, exp, "training")
+	archiveRunViaSDK(t, writeKindedRunViaSDK(t, exp, "training"))
+
+	runs, err := client.SearchRuns(QueryByExperiment(exp))
+	if err != nil {
+		t.Fatalf("SearchRuns against a live Aim: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("a query with no archived term returned %d of 2 runs, want 1. "+
+			"Aim's default changed: archived runs are now included, and every "+
+			"caller that relied on the default is counting them.", len(runs))
+	}
+}
+
+func writeKindedRunViaSDK(t *testing.T, experiment, kind string) string {
+	t.Helper()
+	setKind := ""
+	if kind != "" {
+		setKind = `run["astrolabe.kind"] = ` + pyQuote(kind)
+	}
+	// runPython indexes what it wrote; a run this server has not indexed is
+	// invisible to search, which would make every case here pass for the
+	// wrong reason.
+	return runPython(t, `
+from aim import Run
+run = Run(repo=REPO, experiment=`+pyQuote(experiment)+`)
+`+setKind+`
+print(run.hash)
+run.close()
+`)
+}
+
+func archiveRunViaSDK(t *testing.T, hash string) {
+	t.Helper()
+	runPython(t, `
+from aim import Repo, Run
+run = Run(run_hash=`+pyQuote(hash)+`, repo=Repo.from_path(REPO))
+run.archived = True
+run.close()
+print(run.hash)
+`)
+}
+
+// randSuffix keeps repeated runs against one long-lived contract repo from
+// counting each other's runs.
+func randSuffix(t *testing.T) string {
+	t.Helper()
+	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
