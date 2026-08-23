@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { BrandMark, Wordmark } from "@/components/brand-mark";
+import { PalettePicker } from "@/components/palette-picker";
 
 interface Props {
   children: React.ReactNode;
@@ -28,6 +29,7 @@ export function AppShell({ children, rightSlot }: Props) {
               link competing for attention. */}
           <div className="ml-auto flex items-center gap-2">
             {rightSlot}
+            <PalettePicker />
             <button
               type="button"
               onClick={toggle}
