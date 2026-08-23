@@ -20,6 +20,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle("dark", theme === "dark");
+    // The brand stylesheet keys on [data-theme]; Tailwind's dark: variant keys
+    // on the class. Both are stamped so neither has to be rewritten.
+    root.dataset.theme = theme;
     root.style.colorScheme = theme;
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme);
