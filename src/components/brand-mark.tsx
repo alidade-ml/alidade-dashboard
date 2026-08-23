@@ -21,7 +21,7 @@ export function BrandMark({ className }: { className?: string }) {
       role="img"
       aria-label="Astrolabe"
       strokeLinejoin="round"
-      className={cn("h-5 w-5", className)}
+      className={cn("h-6 w-6", className)}
     >
       <defs>
         {/* Reused three times: knocked out of the crescent, painted as ink off
