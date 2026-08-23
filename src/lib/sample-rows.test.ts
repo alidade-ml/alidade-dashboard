@@ -7,8 +7,8 @@
  *     with input_text set.
  *   * Absent and empty are different: a set logged without inputs has no
  *     input_text key at all; a model that returned "" has the key with "".
- *   * Image pairs carry an opaque uri, which becomes a hub URL. The uri is
- *     never parsed or rebuilt.
+ *   * Image pairs carry a hub URL, used verbatim. It is stable across fetches
+ *     by construction, and rebuilding it client-side would forfeit that.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -48,14 +48,24 @@ describe("rowsFromBatch", () => {
       batch({
         sample_set: "faces",
         kind: "image",
-        pairs: [{ step: 0, input_text: "a golden retriever", output_uri: "TOKEN" }],
+        pairs: [
+          {
+            step: 0,
+            input_text: "a golden retriever",
+            output_url: "/api/samples/blob?role=output&run=r&set=faces&step=0",
+          },
+        ],
       }),
       "model-a",
       "hash-a",
     );
     assert.equal(rows[0].input, "a golden retriever", "a text input was lost on an image batch");
     assert.equal(rows[0].inputUrl, undefined, "a text input must not become an image URL");
-    assert.ok(rows[0].outputUrl?.includes("TOKEN"), "the output uri did not reach a URL");
+    assert.equal(
+      rows[0].outputUrl,
+      "/api/samples/blob?role=output&run=r&set=faces&step=0",
+      "the output URL did not reach the row",
+    );
     assert.equal(rows[0].output, undefined, "an image output must not carry output text");
   });
 
@@ -64,31 +74,27 @@ describe("rowsFromBatch", () => {
       batch({
         sample_set: "denoise",
         kind: "image",
-        pairs: [{ step: 7, input_uri: "IN", output_uri: "OUT" }],
+        pairs: [{ step: 7, input_url: "/in", output_url: "/out" }],
       }),
       "model-a",
       "hash-a",
     );
     assert.equal(rows[0].input, "step 7");
-    assert.ok(rows[0].inputUrl?.includes("IN"));
-    assert.ok(rows[0].outputUrl?.includes("OUT"));
+    assert.equal(rows[0].inputUrl, "/in");
+    assert.equal(rows[0].outputUrl, "/out");
   });
 
-  it("passes the uri through url-encoded, never rebuilt", () => {
-    // Fernet tokens contain -, _ and = padding. Any re-encoding produces a
-    // token Aim cannot decrypt, and it fails as a broken image, not an error.
-    const uri = "gAAAAABq-i_L8Q==";
+  it("uses the server's URL verbatim, without rebuilding it", () => {
+    // The hub now names an image by (run, set, role, step) so the address is
+    // the same every fetch — that stability is the whole point, and any
+    // client-side reconstruction would put it back at risk.
+    const url = "/api/samples/blob?role=output&run=abc&set=faces&step=0";
     const rows = rowsFromBatch(
-      batch({ kind: "image", pairs: [{ step: 0, output_uri: uri }] }),
+      batch({ kind: "image", pairs: [{ step: 0, output_url: url }] }),
       "model-a",
       "hash-a",
     );
-    const parsed = new URL(rows[0].outputUrl!, "http://localhost");
-    assert.equal(
-      parsed.searchParams.get("uri"),
-      uri,
-      "the uri did not survive the round trip through the URL",
-    );
+    assert.equal(rows[0].outputUrl, url);
   });
 
   it("carries the model identity onto every row", () => {

@@ -17,12 +17,14 @@ type Handler struct {
 	colors []string
 
 	runCounts runCountCache
+	blobURIs  blobURICache
 }
 
 // NewHandler creates a Handler with the given Aim client, state reader, and color palette.
 func NewHandler(aim *AimClient, state *StateReader, colors []string) *Handler {
 	h := &Handler{aim: aim, state: state, colors: colors}
 	h.runCounts.ttl = DefaultRunCountTTL
+	h.blobURIs.ttl = BlobURITTL
 	return h
 }
 

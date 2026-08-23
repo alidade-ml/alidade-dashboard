@@ -24,9 +24,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -599,6 +599,47 @@ func blobURIsFromFixture(t *testing.T) []string {
 
 // fakeBlobAim serves the captured blob-batch body for any request.
 // requested records what the handler asked for.
+// fakeSampleAim serves both routes the blob handler needs: the object
+// sequence it resolves a step through, and the repo-level blob route.
+// seqCalls counts sequence fetches, which is how the resolution cache is
+// observed — the bytes are identical either way.
+func fakeSampleAim(t *testing.T, requested *[]string, seqCalls *int32) *AimClient {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/images/get-batch"):
+			var uris []string
+			_ = json.NewDecoder(r.Body).Decode(&uris)
+			if requested != nil {
+				*requested = append(*requested, uris...)
+			}
+			b, err := os.ReadFile(filepath.Join("testdata", "images_blobs_batch.bin"))
+			if err != nil {
+				t.Fatalf("fixture: %v", err)
+			}
+			_, _ = w.Write(b)
+		case strings.Contains(r.URL.Path, "/images/get-batch/"):
+			if seqCalls != nil {
+				atomic.AddInt32(seqCalls, 1)
+			}
+			b, err := os.ReadFile(filepath.Join("testdata", "images_get_batch.bin"))
+			if err != nil {
+				t.Fatalf("fixture: %v", err)
+			}
+			_, _ = w.Write(b)
+		case strings.Contains(r.URL.Path, "/texts/get-batch/"):
+			if seqCalls != nil {
+				atomic.AddInt32(seqCalls, 1)
+			}
+			_, _ = w.Write(nil)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return NewAimClient(srv.URL)
+}
+
 func fakeBlobAim(t *testing.T, requested *[]string) *AimClient {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -666,20 +707,67 @@ func TestBlobsAreRealImages(t *testing.T) {
 	}
 }
 
+// blobReq builds a request for one image the way the batch response now
+// addresses it: by what the image IS, not by a token.
+func blobReq(step int) *http.Request {
+	return httptest.NewRequest("GET",
+		"/api/samples/blob?run=abc123&set=faces&role=output&step="+strconv.Itoa(step), nil)
+}
+
+func TestBlobURLIsTheSameEveryTime(t *testing.T) {
+	// The whole ticket. Aim mints a fresh Fernet token per batch response,
+	// so a URL carrying one is never a cache hit. Two batch reads of the
+	// same run must produce byte-identical URLs.
+	first := callBatch(t, imageBatchAim(t), "abc123", "faces")
+	second := callBatch(t, imageBatchAim(t), "abc123", "faces")
+
+	var a, b SampleBatch
+	if err := json.NewDecoder(first.Body).Decode(&a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewDecoder(second.Body).Decode(&b); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Pairs) == 0 {
+		t.Fatal("no pairs to compare")
+	}
+	for i := range a.Pairs {
+		if a.Pairs[i].OutputURL == nil || b.Pairs[i].OutputURL == nil {
+			t.Fatalf("pair %d has no output URL", i)
+		}
+		if *a.Pairs[i].OutputURL != *b.Pairs[i].OutputURL {
+			t.Fatalf("URL changed between reads:\n %s\n %s",
+				*a.Pairs[i].OutputURL, *b.Pairs[i].OutputURL)
+		}
+	}
+}
+
+func TestBlobURLCarriesNoAimToken(t *testing.T) {
+	// A token in the URL is what made it unstable. Fernet tokens start
+	// "gAAAAA"; nothing resembling one may appear.
+	rr := callBatch(t, imageBatchAim(t), "abc123", "faces")
+	var batch SampleBatch
+	if err := json.NewDecoder(rr.Body).Decode(&batch); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range batch.Pairs {
+		if p.OutputURL != nil && strings.Contains(*p.OutputURL, "gAAAAA") {
+			t.Fatalf("an Aim token leaked into the URL: %s", *p.OutputURL)
+		}
+	}
+}
+
 func TestBlobURIGoesBackToAimVerbatim(t *testing.T) {
-	// Fernet tokens contain '-', '_' and '=' padding. Any unescaping,
-	// re-encoding or normalisation on this side produces a token Aim
-	// cannot decrypt, and the failure is a broken image rather than an
-	// error.
+	// Fernet tokens contain '-', '_' and '=' padding. The hub resolves the
+	// token itself now, and must still hand it back untouched: any
+	// re-encoding produces one Aim cannot decrypt, and it fails as a broken
+	// image rather than an error.
 	uris := blobURIsFromFixture(t)
 	var requested []string
-	aim := fakeBlobAim(t, &requested)
+	h := NewHandler(fakeSampleAim(t, &requested, nil), nil, nil)
 
-	h := NewHandler(aim, nil, nil)
-	req := httptest.NewRequest("GET", "/api/samples/blob?uri="+url.QueryEscape(uris[0]), nil)
 	rr := httptest.NewRecorder()
-	h.HandleSampleBlob(rr, req)
-
+	h.HandleSampleBlob(rr, blobReq(0))
 	if rr.Code != 200 {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -691,49 +779,70 @@ func TestBlobURIGoesBackToAimVerbatim(t *testing.T) {
 	}
 }
 
-func TestBlobContentTypeComesFromTheFormatNotSniffing(t *testing.T) {
-	uris := blobURIsFromFixture(t)
-	h := NewHandler(fakeBlobAim(t, nil), nil, nil)
+func TestBlobResolutionIsCachedAcrossImages(t *testing.T) {
+	// Resolving per image costs a sequence fetch each: measured at 44ms
+	// against 1.6ms for the bytes, so a 24-image grid would go from 83ms to
+	// 1102ms. Stable URLs must not be bought with that.
+	var seqCalls int32
+	h := NewHandler(fakeSampleAim(t, nil, &seqCalls), nil, nil)
 
-	req := httptest.NewRequest("GET", "/api/samples/blob?uri="+url.QueryEscape(uris[0])+"&format=png", nil)
+	for step := 0; step < 3; step++ {
+		rr := httptest.NewRecorder()
+		h.HandleSampleBlob(rr, blobReq(step))
+		if rr.Code != 200 {
+			t.Fatalf("step %d: expected 200, got %d: %s", step, rr.Code, rr.Body.String())
+		}
+	}
+	// sequenceEitherWay asks texts then images, so one resolution is two
+	// calls. Three images must not be three resolutions.
+	if n := atomic.LoadInt32(&seqCalls); n > 2 {
+		t.Errorf("%d sequence fetches for 3 images; the resolution cache is "+
+			"not holding, and every image now costs a sequence read", n)
+	}
+}
+
+func TestBlobContentTypeComesFromTheRecordNotTheCaller(t *testing.T) {
+	// The format used to be a query parameter the client guessed at,
+	// defaulting to png. The record states it, so the server reads it there
+	// and the caller cannot disagree.
+	h := NewHandler(fakeSampleAim(t, nil, nil), nil, nil)
 	rr := httptest.NewRecorder()
-	h.HandleSampleBlob(rr, req)
+	h.HandleSampleBlob(rr, blobReq(0))
 	if ct := rr.Header().Get("Content-Type"); ct != "image/png" {
 		t.Errorf("Content-Type = %q, want image/png", ct)
 	}
+}
 
-	// A format outside the closed set is a disagreement between the
-	// batch and the request, not something to guess at.
-	req = httptest.NewRequest("GET", "/api/samples/blob?uri="+url.QueryEscape(uris[0])+"&format=tiff", nil)
-	rr = httptest.NewRecorder()
-	h.HandleSampleBlob(rr, req)
-	if rr.Code != 400 {
-		t.Errorf("expected 400 for an unsupported format, got %d", rr.Code)
+func TestBlobRejectsBadTuplesBeforeAnyRequest(t *testing.T) {
+	for _, q := range []string{
+		"",
+		"?set=faces&role=output&step=0",  // no run
+		"?run=abc123&role=output&step=0", // no set
+		"?run=abc123&set=faces&step=0",   // no role
+		"?run=abc123&set=faces&role=sideways&step=0", // role outside the closed set
+		"?run=abc123&set=a/b&role=output&step=0",     // set would address another sequence
+		"?run=../etc&set=faces&role=output&step=0",   // run is not a hash
+		"?run=abc123&set=faces&role=output&step=x",   // step is not a number
+	} {
+		var requested []string
+		h := NewHandler(fakeSampleAim(t, &requested, nil), nil, nil)
+		rr := httptest.NewRecorder()
+		h.HandleSampleBlob(rr, httptest.NewRequest("GET", "/api/samples/blob"+q, nil))
+		if rr.Code != 400 {
+			t.Errorf("q=%q: expected 400, got %d", q, rr.Code)
+		}
+		if len(requested) != 0 {
+			t.Errorf("q=%q: a request left the hub for a rejected tuple", q)
+		}
 	}
 }
 
-func TestBlobMissingURIIsRejectedBeforeAnyRequest(t *testing.T) {
-	var requested []string
-	h := NewHandler(fakeBlobAim(t, &requested), nil, nil)
-	req := httptest.NewRequest("GET", "/api/samples/blob", nil)
+func TestBlobUnknownStepIs404NotAnEmpty200(t *testing.T) {
+	// An empty 200 renders as a blank image; a 404 renders as a broken one.
+	// Broken is honest.
+	h := NewHandler(fakeSampleAim(t, nil, nil), nil, nil)
 	rr := httptest.NewRecorder()
-	h.HandleSampleBlob(rr, req)
-
-	if rr.Code != 400 {
-		t.Fatalf("expected 400, got %d", rr.Code)
-	}
-	if len(requested) != 0 {
-		t.Errorf("a request left the hub for a missing uri: %v", requested)
-	}
-}
-
-func TestBlobUnknownURIIs404NotAnEmpty200(t *testing.T) {
-	// An empty 200 renders as a blank image; a 404 renders as a broken
-	// one. Broken is honest.
-	h := NewHandler(fakeBlobAim(t, nil), nil, nil)
-	req := httptest.NewRequest("GET", "/api/samples/blob?uri=not-a-real-token", nil)
-	rr := httptest.NewRecorder()
-	h.HandleSampleBlob(rr, req)
+	h.HandleSampleBlob(rr, blobReq(9999))
 	if rr.Code != 404 {
 		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -741,9 +850,8 @@ func TestBlobUnknownURIIs404NotAnEmpty200(t *testing.T) {
 
 func TestBlobUnreachableAimIs502(t *testing.T) {
 	h := NewHandler(NewAimClient("http://127.0.0.1:1"), nil, nil)
-	req := httptest.NewRequest("GET", "/api/samples/blob?uri=x", nil)
 	rr := httptest.NewRecorder()
-	h.HandleSampleBlob(rr, req)
+	h.HandleSampleBlob(rr, blobReq(0))
 	if rr.Code != 502 {
 		t.Fatalf("expected 502, got %d", rr.Code)
 	}
@@ -765,7 +873,7 @@ func TestAnImageBatchCarriesURIsAndKindImage(t *testing.T) {
 		t.Fatalf("got %d pairs, want 3", len(b.Pairs))
 	}
 	for _, p := range b.Pairs {
-		if p.OutputURI == nil || *p.OutputURI == "" {
+		if p.OutputURL == nil || *p.OutputURL == "" {
 			t.Errorf("step %d has no output_uri", p.Step)
 		}
 		if p.OutputText != nil {
@@ -985,5 +1093,118 @@ func TestSampleRunsAreNotRowsInTheExperimentRunList(t *testing.T) {
 	}
 	if len(runs) != 1 {
 		t.Fatalf("expected only the training run, got %d: %+v", len(runs), runs)
+	}
+}
+
+// --- steps that are not indexes ---
+//
+// The image fixture is logged at steps 0, 1, 2, where the step and the slice
+// index happen to be equal. Every assertion against it passes whether the
+// resolver keys by step or by position, so the difference is invisible there —
+// and a real batch logged at 0, 10, 20 would serve the wrong image with no
+// error. These build a sequence where the two disagree.
+
+// encodeObjectSeq renders a sequence in Aim's wire format with the given
+// steps, so a test can choose them.
+func encodeObjectSeq(t *testing.T, name string, steps []int64, uriFor func(int64) string, format string) []byte {
+	t.Helper()
+	var out []byte
+	add := func(path, val []byte) {
+		out = append(out, encFrame(path)...)
+		out = append(out, encFrame(val)...)
+	}
+	add(encPath("name"), encVal(name))
+	for i, step := range steps {
+		add(encPath("iters", int64(i)), encVal(step))
+		add(encPath("values", int64(i), int64(0), "blob_uri"), encVal(uriFor(step)))
+		add(encPath("values", int64(i), int64(0), "format"), encVal(format))
+	}
+	return out
+}
+
+func steppedAim(t *testing.T, steps []int64, requested *[]string) *AimClient {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/images/get-batch"):
+			var uris []string
+			_ = json.NewDecoder(r.Body).Decode(&uris)
+			if requested != nil {
+				*requested = append(*requested, uris...)
+			}
+			// One byte of payload per uri, keyed so the caller can tell
+			// which image it actually got.
+			var body []byte
+			for _, u := range uris {
+				body = append(body, encFrame([]byte(u))...)
+				body = append(body, encFrame(encVal("PIXELS-"+u))...)
+			}
+			_, _ = w.Write(body)
+		case strings.Contains(r.URL.Path, "/images/get-batch/"):
+			_, _ = w.Write(encodeObjectSeq(t, "sample/faces/output", steps,
+				func(s int64) string { return fmt.Sprintf("tok-step-%d", s) }, "png"))
+		case strings.Contains(r.URL.Path, "/texts/get-batch/"):
+			_, _ = w.Write(nil)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return NewAimClient(srv.URL)
+}
+
+func TestBlobResolvesByStepNotByPosition(t *testing.T) {
+	var requested []string
+	h := NewHandler(steppedAim(t, []int64{0, 10, 20}, &requested), nil, nil)
+
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, blobReq(20))
+
+	if len(requested) != 1 {
+		t.Fatalf("expected one uri sent to Aim, got %v (status %d)", requested, rr.Code)
+	}
+	if requested[0] != "tok-step-20" {
+		t.Errorf("asked Aim for %q, want tok-step-20 — the resolver keyed by "+
+			"slice position, so step 20 fetched a different image", requested[0])
+	}
+}
+
+func TestBlobStepThatIsOnlyAnIndexFetchesNothing(t *testing.T) {
+	// Step 1 does not exist in this batch; index 1 does. Keying by position
+	// would serve the image logged at step 10.
+	//
+	// Asserted on what was REQUESTED rather than on the status. An earlier
+	// version checked for 404 and passed even when resolution returned the
+	// wrong image, because this fake's blob body is not parseable and every
+	// path 404s. The status could not distinguish "refused to guess" from
+	// "guessed, then failed to fetch"; the request list can.
+	var requested []string
+	h := NewHandler(steppedAim(t, []int64{0, 10, 20}, &requested), nil, nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, blobReq(1))
+
+	if len(requested) != 0 {
+		t.Errorf("step 1 fetched %v; it is not a step in this batch, only an "+
+			"index into it, so nothing should have been asked for", requested)
+	}
+	if rr.Code != 404 {
+		t.Errorf("status = %d, want 404", rr.Code)
+	}
+}
+
+func TestBlobIgnoresACallerSuppliedFormat(t *testing.T) {
+	// format used to be a query parameter the client guessed at. The record
+	// states it, so a caller asking for something else must not change the
+	// answer — and must not be able to provoke a 400 either.
+	h := NewHandler(fakeSampleAim(t, nil, nil), nil, nil)
+	req := httptest.NewRequest("GET",
+		"/api/samples/blob?run=abc123&set=faces&role=output&step=0&format=tiff", nil)
+	rr := httptest.NewRecorder()
+	h.HandleSampleBlob(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png from the record", ct)
 	}
 }

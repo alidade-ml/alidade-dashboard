@@ -220,18 +220,30 @@ func encPath(segs ...any) []byte {
 			out = append(out, []byte(v)...)
 			out = append(out, pathSentinel)
 		case int:
-			out = append(out, pathSentinel)
-			n := make([]byte, 8)
-			binary.BigEndian.PutUint64(n, uint64(v))
-			out = append(out, n...)
-			out = append(out, pathSentinel)
+			out = append(out, encPathInt(uint64(v))...)
+		case int64:
+			out = append(out, encPathInt(uint64(v))...)
 		}
 	}
 	return out
 }
 
+// encPathInt renders an integer path segment. Big-endian, unlike the frame
+// lengths, so keys sort correctly in RocksDB.
+func encPathInt(v uint64) []byte {
+	out := []byte{pathSentinel}
+	n := make([]byte, 8)
+	binary.BigEndian.PutUint64(n, v)
+	out = append(out, n...)
+	return append(out, pathSentinel)
+}
+
 func encVal(v any) []byte {
 	switch x := v.(type) {
+	case int:
+		return encValInt(int64(x))
+	case int64:
+		return encValInt(x)
 	case string:
 		return append([]byte{tagString}, []byte(x)...)
 	case bool:
@@ -247,6 +259,13 @@ func encVal(v any) []byte {
 		return out
 	}
 	return []byte{tagNone}
+}
+
+func encValInt(x int64) []byte {
+	out := make([]byte, 9)
+	out[0] = tagInt
+	binary.LittleEndian.PutUint64(out[1:], uint64(x))
+	return out
 }
 
 // --- serving /api/runs/search/run/ from the same fakeRun fixtures ---

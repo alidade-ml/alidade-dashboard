@@ -184,9 +184,11 @@ export interface SampleManifestEntry {
 export interface SamplePair {
   step: number;
   input_text?: string;
-  input_uri?: string;
+  /** Stable hub URL for an image input — same address every fetch. */
+  input_url?: string;
   output_text?: string;
-  output_uri?: string;
+  /** Stable hub URL for an image output — same address every fetch. */
+  output_url?: string;
 }
 
 /** `kind` describes the OUTPUT, not the input. A prompt-to-image batch
