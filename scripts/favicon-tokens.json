@@ -1,0 +1,55 @@
+{
+  "default": "prussian",
+  "presets": {
+    "brass": {
+      "light": {
+        "ink": "#241D12",
+        "accent": "#865900"
+      },
+      "dark": {
+        "ink": "#ACA397",
+        "accent": "#987334"
+      }
+    },
+    "verdigris": {
+      "light": {
+        "ink": "#14211E",
+        "accent": "#007661"
+      },
+      "dark": {
+        "ink": "#99A9A4",
+        "accent": "#3B8A78"
+      }
+    },
+    "prussian": {
+      "light": {
+        "ink": "#171F28",
+        "accent": "#3165A0"
+      },
+      "dark": {
+        "ink": "#9CA6B1",
+        "accent": "#547DAD"
+      }
+    },
+    "oxide": {
+      "light": {
+        "ink": "#281B15",
+        "accent": "#9A4825"
+      },
+      "dark": {
+        "ink": "#B1A19A",
+        "accent": "#AA664B"
+      }
+    },
+    "slate": {
+      "light": {
+        "ink": "#1A1F22",
+        "accent": "#4A677B"
+      },
+      "dark": {
+        "ink": "#A0A5A9",
+        "accent": "#667E8E"
+      }
+    }
+  }
+}

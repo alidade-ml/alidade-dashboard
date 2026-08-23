@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"
      role="img" aria-label="Astrolabe" stroke-linejoin="round">
   <style>
-    :root { --astro-mark-ink: #171F28; --astro-accent: #3165A0; }
+    :root { --astro-mark-ink: #241D12; --astro-accent: #865900; }
     @media (prefers-color-scheme: dark) {
-      :root { --astro-mark-ink: #9CA6B1; --astro-accent: #547DAD; }
+      :root { --astro-mark-ink: #ACA397; --astro-accent: #987334; }
     }
   </style>
   <title>Astrolabe</title>
@@ -45,20 +45,20 @@
   </defs>
 
   <circle class="astro-crescent" cx="32" cy="32" r="27.1"
-          fill="var(--astro-accent, #3165A0)" mask="url(#astro-crescent)"/>
+          fill="var(--astro-accent, #865900)" mask="url(#astro-crescent)"/>
 
   <g class="astro-limb" mask="url(#astro-channel)" fill="none"
-     stroke="var(--astro-mark-ink, #171F28)" stroke-width="2.2" stroke-linecap="round">
+     stroke="var(--astro-mark-ink, #241D12)" stroke-width="2.2" stroke-linecap="round">
     <path pathLength="1" d="M 41.6346 56.1489 A 26 26 0 0 1 22.3654 56.1489"/>
     <path pathLength="1" d="M 16.8280 53.1141 A 26 26 0 0 1 28.8314 6.1937"/>
     <path pathLength="1" d="M 35.1686 6.1937 A 26 26 0 0 1 47.1720 53.1141"/>
   </g>
 
   <g class="astro-letter" mask="url(#astro-offmass)">
-    <use href="#astro-letter" fill="var(--astro-mark-ink, #171F28)"/>
+    <use href="#astro-letter" fill="var(--astro-mark-ink, #241D12)"/>
   </g>
 
-  <g class="astro-grads" stroke="var(--astro-mark-ink, #171F28)" stroke-width="1.5" stroke-linecap="round">
+  <g class="astro-grads" stroke="var(--astro-mark-ink, #241D12)" stroke-width="1.5" stroke-linecap="round">
     <line x1="50.6195" y1="21.2500" x2="54.5167" y2="19.0000"/>
     <line x1="52.0720" y1="24.2950" x2="56.2731" y2="22.6824"/>
     <line x1="53.0302" y1="27.5300" x2="57.4318" y2="26.5943"/>
@@ -66,8 +66,8 @@
     <line x1="53.3823" y1="34.2474" x2="57.8576" y2="34.7178"/>
   </g>
 
-  <g class="astro-rule" fill="var(--astro-mark-ink, #171F28)"
-     stroke="var(--astro-mark-ink, #171F28)" stroke-linecap="round">
+  <g class="astro-rule" fill="var(--astro-mark-ink, #241D12)"
+     stroke="var(--astro-mark-ink, #241D12)" stroke-linecap="round">
     <line x1="6.5682" y1="37.4057" x2="57.4318" y2="26.5943" stroke-width="2.4"/>
     <line x1="12.3321" y1="40.4744" x2="10.5857" y2="32.2580" stroke-width="1.92"/>
     <line x1="53.4143" y1="31.7420" x2="51.6679" y2="23.5256" stroke-width="1.92"/>

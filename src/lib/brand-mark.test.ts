@@ -10,6 +10,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { readFileSync, readdirSync } from "node:fs";
+
+import { DEFAULT_PRESET, PRESETS, tokensFor } from "./palette-recipe.ts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -88,10 +90,45 @@ describe("the mark", () => {
     }
   });
 
-  it("ships a favicon that does not depend on page tokens", () => {
-    const fav = read("public", "favicon.svg");
-    assert.match(fav, /--astro-ink:\s*#/, "favicon has no baked ink value");
-    assert.match(fav, /prefers-color-scheme: dark/, "favicon does not follow the OS theme");
+  it("ships a favicon per palette, plus the default", () => {
+    for (const p of PRESETS) {
+      const fav = read("public", "favicons", `${p.id}.svg`);
+      assert.match(
+        fav,
+        /prefers-color-scheme: dark/,
+        `${p.id} favicon does not follow the OS theme`,
+      );
+      const want = tokensFor(p, "light");
+      assert.ok(
+        fav.includes(`--astro-accent: ${want["--astro-accent"]}`),
+        `${p.id} favicon does not carry its own accent`,
+      );
+    }
+    assert.equal(
+      read("public", "favicon.svg"),
+      read("public", "favicons", `${DEFAULT_PRESET}.svg`),
+      "public/favicon.svg does not match DEFAULT_PRESET — run: node --experimental-strip-types scripts/gen-favicon-tokens.ts && python3 scripts/build-favicon.py",
+    );
     assert.match(read("index.html"), /rel="icon"[^>]*favicon\.svg/, "favicon is not linked");
+  });
+
+  it("sets only variables the favicon's own geometry reads", () => {
+    // The failure this catches is silent: a style block naming --astro-ink while
+    // the paths read --astro-mark-ink leaves every palette rendering the
+    // hardcoded fallback, and the one preset whose colours happen to match the
+    // fallback still looks correct.
+    for (const p of PRESETS) {
+      const fav = read("public", "favicons", `${p.id}.svg`);
+      const style = fav.slice(fav.indexOf("<style>"), fav.indexOf("</style>"));
+      const declared = new Set(style.match(/--astro-[\w-]+(?=:)/g) ?? []);
+      const consumed = new Set((fav.match(/var\((--astro-[\w-]+)/g) ?? []).map((m) => m.slice(4)));
+      assert.ok(consumed.size > 0, `${p.id} favicon paints nothing through a variable`);
+      for (const name of consumed) {
+        assert.ok(
+          declared.has(name),
+          `${p.id} favicon reads ${name}, which its style block never sets`,
+        );
+      }
+    }
   });
 });
