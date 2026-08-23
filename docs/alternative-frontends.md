@@ -31,7 +31,7 @@ The simplest path. The Go server runs on the NUC at `http://<nuc>:43801` and exp
 | `GET`  | `/api/experiments`                 | List of all experiments with state, GPU type, run count, version count, submitter                         |
 | `GET`  | `/api/experiments/{name}/runs`     | Detailed runs for one experiment (metrics list + final loss)                                              |
 | `GET`  | `/api/experiments/{name}/includes` | Resolved `--include` directives for an experiment                                                         |
-| `GET`  | `/api/runs`                        | Flat list of all runs across all experiments, sorted by creation time desc                                |
+| `GET`  | `/api/runs`                        | Flat list of runs across all experiments, newest first. Excludes eval and metadata runs; includes samples — read `kind` and filter if that split is wrong for you |
 | `GET`  | `/api/runs/{hash}/info`            | Full Aim metadata for a run (params, traces, props)                                                       |
 | `GET`  | `/api/runs/{hash}/metrics`         | Available metric names for a run                                                                          |
 | `GET`  | `/api/runs/{hash}/metrics/{name}`  | Time-series for one metric (steps, values, wall_times)                                                    |
@@ -75,9 +75,14 @@ Path params (`{name}`, `{hash}`) accept anything — metric names commonly conta
   "duration": "12h 34m",
   "version": "v3",
   "submit_id": "abc-123-def",
-  "submitted_by": "alice"
+  "submitted_by": "alice",
+  "kind": "training"
 }
 ```
+
+`kind` is the `astrolabe.kind` tag verbatim, and is absent on runs that predate
+it (legacy training runs). Added in v1.9.0: the endpoint has always filtered by
+kind and a consumer previously had no way to see that, or to apply its own rule.
 
 **MetricResponse** — `/api/runs/{hash}/metrics/{name}`:
 

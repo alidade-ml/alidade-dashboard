@@ -99,6 +99,11 @@ type ExperimentSummary struct {
 	SubmittedBy string `json:"submitted_by,omitempty"`
 }
 
+// RunSummary is the item shape of /api/runs.
+//
+// A published contract: docs/alternative-frontends.md documents this endpoint
+// and this shape for third parties building their own UI. Fields are additive
+// only — removing or renaming one breaks a consumer this repo cannot see.
 type RunSummary struct {
 	Hash           string  `json:"hash"`
 	Name           string  `json:"name"`
@@ -116,6 +121,12 @@ type RunSummary struct {
 	// by the dashboard's stats table to show "by alice" when comparing
 	// across users; empty for legacy runs.
 	SubmittedBy string `json:"submitted_by,omitempty"`
+	// v1.9.0 — the astrolabe.kind tag, verbatim and possibly empty.
+	//
+	// Added because this endpoint filters, and until now a consumer had
+	// no way to know that or to apply its own rule. Empty means the run
+	// predates the tag, which is a legacy training run.
+	Kind string `json:"kind,omitempty"`
 }
 
 type RunDetail struct {
@@ -139,10 +150,13 @@ type RunDetail struct {
 	Duration     string        `json:"duration"`
 	Metrics      []MetricEntry `json:"metrics"`
 	FinalLoss    *float64      `json:"final_loss"`
-	// v1.2.0 — see RunSummary for the same notes.
+	// v1.2.0 — which submit produced this run. Empty for legacy runs
+	// that pre-date the astrolabe.version tag; the dashboard falls back
+	// to "v1" in that case.
 	Version  string `json:"version,omitempty"`
 	SubmitID string `json:"submit_id,omitempty"`
-	// v1.4.0 — see RunSummary.
+	// v1.4.0 — submitter identity from the astrolabe.user tag. Empty
+	// for legacy runs.
 	SubmittedBy string `json:"submitted_by,omitempty"`
 }
 
@@ -181,128 +195,6 @@ type IncludeEntry struct {
 	//   "unknown"     — no match; frontend renders as struck-out
 	Type string   `json:"type"`
 	Runs []string `json:"runs"` // Aim run hashes
-}
-
-// --- Helpers: Aim run lookup ---
-
-// aimRunIndex builds lookup maps from Aim data:
-// - byAimExperiment: Aim experiment name → []RunSummary
-// - byHash:          run hash → RunSummary
-// - byRunName:       Aim run.name → []RunSummary (across all experiments)
-//
-// Each RunSummary is enriched with the astrolabe.version /
-// astrolabe.submit_id tags (read from Aim run params via GetRunInfo)
-// so callers can group runs by version without a second pass. The
-// per-run info call is parallelized — N runs → N concurrent calls
-// against Aim's REST API. For typical experiments (≤50 runs) this
-// completes in ~100ms; for huge experiments it can be a noticeable
-// share of the dashboard's poll cadence, but Aim's REST API can
-// handle the parallelism.
-//
-// byRunName is the v1.4.x addition for include resolution. The same
-// run.name (e.g. "astrolabe_test") often appears across multiple
-// experiments — the slice preserves all matches so a run-name-shaped
-// include pulls every matching run, not just one.
-func (h *Handler) aimRunIndex() (
-	byAimExperiment map[string][]RunSummary,
-	byHash map[string]RunSummary,
-	byRunName map[string][]RunSummary,
-) {
-	byAimExperiment = make(map[string][]RunSummary)
-	byHash = make(map[string]RunSummary)
-	byRunName = make(map[string][]RunSummary)
-
-	experiments, err := h.aim.ListExperiments()
-	if err != nil {
-		return
-	}
-
-	// Collect runs first (cheap), then fan out version lookups in parallel.
-	type runEntry struct {
-		expName string
-		ar      AimRun
-	}
-	var runEntries []runEntry
-	for _, exp := range experiments {
-		if exp.RunCount == 0 || exp.Archived {
-			continue
-		}
-		expRuns, err := h.aim.ListExperimentRuns(exp.ID)
-		if err != nil {
-			continue
-		}
-		for _, ar := range expRuns.Runs {
-			if ar.Archived {
-				continue
-			}
-			runEntries = append(runEntries, runEntry{expName: exp.Name, ar: ar})
-		}
-	}
-
-	// Fan-out: one GetRunInfo per run for params extraction. Skip on
-	// error — the dashboard's fallback handles missing version fields.
-	type indexed struct {
-		i  int
-		rs RunSummary
-	}
-	results := make(chan indexed, len(runEntries))
-	var wg sync.WaitGroup
-	for i, e := range runEntries {
-		wg.Add(1)
-		go func(i int, e runEntry) {
-			defer wg.Done()
-			rs := RunSummary{
-				Hash:           e.ar.RunID,
-				Name:           runDisplayName(e.ar, e.expName),
-				ExperimentName: e.expName,
-				CreationTime:   e.ar.CreationTime,
-				EndTime:        e.ar.EndTime,
-				Active:         e.ar.EndTime == 0,
-				Duration:       formatDuration(e.ar.CreationTime, e.ar.EndTime),
-			}
-			if info, err := h.aim.GetRunInfo(e.ar.RunID); err == nil {
-				tags := AstrolabeTagsFromParams(info.Params)
-				// Skip engine-created cost-metadata runs and
-				// researcher-written eval runs from the
-				// experiment-detail page's run list. Both carry no
-				// training metrics; rendering them as additional rows
-				// would clutter the chart legend and stats table.
-				// Eval runs surface on the dedicated Eval tab via
-				// HandleRunEvals.
-				if tags.Kind == "metadata" || tags.Kind == "eval" {
-					results <- indexed{i: i, rs: RunSummary{}}
-					return
-				}
-				rs.Version = tags.Version
-				rs.SubmitID = tags.SubmitID
-				rs.SubmittedBy = tags.SubmittedBy
-			}
-			results <- indexed{i: i, rs: rs}
-		}(i, e)
-	}
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	enriched := make([]RunSummary, len(runEntries))
-	for r := range results {
-		enriched[r.i] = r.rs
-	}
-	for _, rs := range enriched {
-		if rs.Hash == "" {
-			continue
-		}
-		byAimExperiment[rs.ExperimentName] = append(byAimExperiment[rs.ExperimentName], rs)
-		byHash[rs.Hash] = rs
-		// Run-name index for v1.4.x include resolution. Skip empty
-		// names (Aim sometimes omits a name on runs that haven't been
-		// labeled yet); they're matchable by hash anyway.
-		if rs.Name != "" {
-			byRunName[rs.Name] = append(byRunName[rs.Name], rs)
-		}
-	}
-	return
 }
 
 // --- Route handlers ---
@@ -767,13 +659,47 @@ func isHashLike(s string) bool {
 	return true
 }
 
-// HandleRuns returns all runs across all experiments (flat list).
+// HandleRuns returns a flat list of runs across all experiments, newest first.
+//
 // GET /api/runs
+//
+// Nothing in this repo's frontend calls it. It is kept, and kept working,
+// because docs/alternative-frontends.md publishes it as part of the API a
+// third-party UI can build on — a survey of one repo is not evidence that a
+// documented endpoint has no users.
+//
+// One search rather than the per-run fan-out this used to do. The filter is
+// unchanged from that implementation: eval and metadata runs are omitted,
+// sample runs are not. That is a quirk rather than a design — see
+// NonRowKinds — but it is the behaviour consumers have, and correcting it
+// here would be a silent contract change in a ticket about speed. Runs now
+// carry Kind so a consumer can apply its own rule.
 func (h *Handler) HandleRuns(w http.ResponseWriter, r *http.Request) {
-	_, byHash, _ := h.aimRunIndex()
-	var runs []RunSummary
-	for _, rs := range byHash {
-		runs = append(runs, rs)
+	found, err := h.aim.SearchRuns(QueryNotArchived())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	runs := make([]RunSummary, 0, len(found))
+	for _, sr := range found {
+		tags := AstrolabeTagsFromParams(sr.Params)
+		if tags.Kind == KindEval || tags.Kind == KindMetadata {
+			continue
+		}
+		runs = append(runs, RunSummary{
+			Hash:           sr.Hash,
+			Name:           runDisplayName(AimRun{RunID: sr.Hash, Name: sr.Name}, sr.ExperimentName),
+			ExperimentName: sr.ExperimentName,
+			CreationTime:   sr.CreationTime,
+			EndTime:        sr.EndTime,
+			Active:         sr.EndTime == 0,
+			Duration:       formatDuration(sr.CreationTime, sr.EndTime),
+			Version:        tags.Version,
+			SubmitID:       tags.SubmitID,
+			SubmittedBy:    tags.SubmittedBy,
+			Kind:           tags.Kind,
+		})
 	}
 	sort.Slice(runs, func(i, j int) bool {
 		return runs[i].CreationTime > runs[j].CreationTime
