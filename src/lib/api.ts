@@ -180,9 +180,11 @@ export const api = {
     ),
 };
 
-// Default Astrolabe palette — used when /api/config/colors is unavailable
-// (also doubles as a deterministic local fallback for offline previews).
-export const DEFAULT_PALETTE = [
+// Categorical trace colours, used when /api/config/colors is unavailable (and
+// as a deterministic fallback for offline previews). Distinct from the brand
+// palettes in palette-recipe.ts: these encode which run a line belongs to, and
+// must stay mutually distinguishable rather than harmonious.
+export const DEFAULT_CHART_PALETTE = [
   "#4E79A7",
   "#F28E2B",
   "#59A14F",

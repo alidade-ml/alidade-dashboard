@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FilterDropdown } from "@/components/filter-dropdown";
-import { api } from "@/lib/api";
+import { api, DEFAULT_CHART_PALETTE } from "@/lib/api";
 import type {
   CostExperimentEntry,
   CostGroupByDimension,
@@ -444,7 +444,7 @@ function CostChart({
               key={k}
               dataKey={k}
               stackId="cost"
-              fill={STACK_PALETTE[idx % STACK_PALETTE.length]}
+              fill={DEFAULT_CHART_PALETTE[idx % DEFAULT_CHART_PALETTE.length]}
             />
           ))}
         </BarChart>
@@ -477,7 +477,7 @@ function CostChart({
               >
                 <span
                   className="h-2.5 w-2.5 rounded-sm"
-                  style={{ background: STACK_PALETTE[idx % STACK_PALETTE.length] }}
+                  style={{ background: DEFAULT_CHART_PALETTE[idx % DEFAULT_CHART_PALETTE.length] }}
                 />
                 <span className={cn(isHidden && "line-through")}>{k}</span>
               </button>
@@ -488,8 +488,6 @@ function CostChart({
     </div>
   );
 }
-
-const STACK_PALETTE = ["#4E79A7", "#F28E2B", "#59A14F", "#E15759", "#B07AA1", "#76B7B2"];
 
 // --- Group-by breakdown table ----------------------------------------------
 
