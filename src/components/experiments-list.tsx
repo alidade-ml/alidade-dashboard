@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   ChevronDown,
@@ -23,6 +23,7 @@ import {
   shortHash,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { PAGE_SIZE, pageWindow, pageSlice } from "@/lib/paging";
 
 import { FilterDropdown } from "@/components/filter-dropdown";
 import { StatusDot } from "@/components/status-dot";
@@ -205,10 +206,20 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
         ...(next.repo !== undefined && { repo: encodeList(next.repo) }),
         // null → strip from URL; non-null → set verbatim.
         ...(next.sort !== undefined && { sort: next.sort ?? undefined }),
+        page: undefined,
       }),
       replace: true,
     });
   };
+
+  const goToPage = useCallback(
+    (page: number) =>
+      navigate({
+        search: (prev: SearchParams) => ({ ...prev, page: page > 1 ? page : undefined }),
+        replace: true,
+      }),
+    [navigate],
+  );
 
   /** Click handler for sortable column headers. */
   const onColumnClick = (column: SortColumn) =>
@@ -219,6 +230,10 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
   // Free-text filter — local-only, doesn't survive page reload by
   // design (it's an in-the-moment scan, not a saved view).
   const [filter, setFilter] = useState("");
+  const setFilterAndResetPage = (value: string) => {
+    setFilter(value);
+    if ((search.page ?? 1) > 1) goToPage(1);
+  };
   const filterInputRef = useRef<HTMLInputElement>(null);
 
   // Available filter values, derived from the loaded experiment list
@@ -303,6 +318,12 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
     return list;
   }, [filtered, sortKey]);
 
+  const { page, pageCount, pageStart } = pageSlice(sorted.length, search.page);
+  const visible = useMemo(
+    () => sorted.slice(pageStart, pageStart + PAGE_SIZE),
+    [sorted, pageStart],
+  );
+
   const anyFilterActive =
     selectedStatus.length > 0 || selectedSubmitter.length > 0 || selectedRepo.length > 0;
 
@@ -316,6 +337,13 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
 
   // Selection + keyboard nav
   const [selectedIdx, setSelectedIdx] = useState(0);
+  // A shorter page — the last one, or one the poll just shrank — can leave the
+  // selection past the end, pointing at a row that no longer renders.
+  useEffect(() => {
+    if (selectedIdx > visible.length - 1) {
+      setSelectedIdx(Math.max(0, visible.length - 1));
+    }
+  }, [visible.length, selectedIdx]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const rowRefs = useRef<Record<number, HTMLElement | null>>({});
 
@@ -352,12 +380,22 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
 
       if (e.key === "j") {
         e.preventDefault();
-        setSelectedIdx((i) => Math.min(sorted.length - 1, i + 1));
+        if (selectedIdx >= visible.length - 1 && page < pageCount) {
+          goToPage(page + 1);
+          setSelectedIdx(0);
+        } else {
+          setSelectedIdx((i) => Math.min(visible.length - 1, i + 1));
+        }
       } else if (e.key === "k") {
         e.preventDefault();
-        setSelectedIdx((i) => Math.max(0, i - 1));
+        if (selectedIdx === 0 && page > 1) {
+          goToPage(page - 1);
+          setSelectedIdx(PAGE_SIZE - 1);
+        } else {
+          setSelectedIdx((i) => Math.max(0, i - 1));
+        }
       } else if (e.key === "Enter") {
-        const exp = sorted[selectedIdx];
+        const exp = visible[selectedIdx];
         if (exp) {
           e.preventDefault();
           navigate({
@@ -366,7 +404,7 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
           });
         }
       } else if (e.key === "x" || e.key === "o") {
-        const exp = sorted[selectedIdx];
+        const exp = visible[selectedIdx];
         if (exp) {
           e.preventDefault();
           setExpanded((m) => ({ ...m, [exp.name]: !m[exp.name] }));
@@ -378,7 +416,7 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [sorted, selectedIdx, navigate, filter, refetch]);
+  }, [visible, selectedIdx, page, pageCount, goToPage, navigate, filter, refetch]);
 
   // Scroll selected row into view
   useEffect(() => {
@@ -407,7 +445,7 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
           <input
             ref={filterInputRef}
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onChange={(e) => setFilterAndResetPage(e.target.value)}
             placeholder="Filter…"
             className="w-44 rounded-md border border-border bg-surface pl-8 pr-12 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring focus:border-ring transition"
           />
@@ -510,7 +548,7 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
         )}
 
         <ul className="divide-y divide-border">
-          {sorted.map((exp, idx) => (
+          {visible.map((exp, idx) => (
             <ExperimentRow
               key={exp.name}
               ref={(el) => {
@@ -526,9 +564,16 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
         </ul>
       </div>
 
+      {pageCount > 1 && <Pager page={page} pageCount={pageCount} onGo={goToPage} />}
+
       <div className="flex items-center justify-between text-[11px] text-muted-foreground font-mono">
         <span>
-          {sorted.length} of {experiments.length} experiments
+          {sorted.length === 0
+            ? `0 of ${experiments.length} experiments`
+            : `${pageStart + 1}–${pageStart + visible.length} of ${sorted.length}` +
+              (sorted.length === experiments.length
+                ? " experiments"
+                : ` matching · ${experiments.length} total`)}
         </span>
         <span className="flex items-center gap-2">
           <Kbd>j</Kbd>
@@ -865,6 +910,65 @@ function RunsPanel({ experimentName }: { experimentName: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+function Pager({
+  page,
+  pageCount,
+  onGo,
+}: {
+  page: number;
+  pageCount: number;
+  onGo: (page: number) => void;
+}) {
+  const step = (delta: number) => onGo(Math.min(pageCount, Math.max(1, page + delta)));
+  const arrow =
+    "px-2 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-surface disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground";
+
+  return (
+    <nav
+      className="flex items-center justify-center gap-1 text-[11px] font-mono"
+      aria-label="Experiment pages"
+    >
+      <button
+        className={arrow}
+        onClick={() => step(-1)}
+        disabled={page === 1}
+        aria-label="Previous page"
+      >
+        ‹
+      </button>
+      {pageWindow(page, pageCount).map((entry, i) =>
+        entry === "gap" ? (
+          <span key={`gap-${i}`} className="px-1 text-muted-foreground opacity-50">
+            …
+          </span>
+        ) : (
+          <button
+            key={entry}
+            onClick={() => onGo(entry)}
+            aria-current={entry === page ? "page" : undefined}
+            className={cn(
+              "px-2 py-1 rounded-md border text-tabular",
+              entry === page
+                ? "border-primary text-foreground bg-surface"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-surface",
+            )}
+          >
+            {entry}
+          </button>
+        ),
+      )}
+      <button
+        className={arrow}
+        onClick={() => step(1)}
+        disabled={page === pageCount}
+        aria-label="Next page"
+      >
+        ›
+      </button>
+    </nav>
   );
 }
 
