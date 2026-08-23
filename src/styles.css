@@ -2,6 +2,7 @@
 @source "../src";
 @import "tw-animate-css";
 @import "./brand/palette.generated.css";
+@import "./brand/fonts.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -37,6 +38,10 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
+  /* brand.md's Optima is a macOS system font and absent on the NUC, so it sits
+     in the chain as a stand-in rather than as the shipped face. */
+  --font-display:
+    "Ysabeau", Optima, Candara, "Gill Sans", "Gill Sans MT", Calibri, sans-serif;
   --font-sans:
     "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     sans-serif;
@@ -64,12 +69,32 @@
     text-rendering: optimizeLegibility;
   }
 
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.006em;
+  }
+
   ::selection {
     background-color: color-mix(in oklab, var(--primary) 35%, transparent);
   }
 }
 
 @layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  /* The wordmark. Uppercase only — the mark supplies the capital.
+     Tracking and weight are specified in docs/brand.md. */
+  .astro-wordmark {
+    font-family: "Astrolabe Wordmark", var(--font-display);
+    font-weight: 500;
+    letter-spacing: 0.018em;
+    text-transform: uppercase;
+  }
+
   .font-mono {
     font-family: var(--font-mono);
   }
