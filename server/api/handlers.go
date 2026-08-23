@@ -228,7 +228,9 @@ func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
 	var experiments []ExperimentSummary
 
 	if h.state != nil {
-		states, err := h.state.ListAll()
+		// ListSummaries, not ListAll: this endpoint renders neither
+		// includes nor git tags, and ListAll fetches both per submit.
+		states, err := h.state.ListSummaries()
 		if err == nil {
 			// Track distinct versions per experiment so the home-page
 			// "vN of M" badge counts ALL submits, not just those with
