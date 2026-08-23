@@ -49,14 +49,20 @@ describe("the mark", () => {
   it("reads the brand tokens for every painted part", () => {
     // A vendored copy that hardcoded hex would look right on exactly one palette.
     assert.ok(mark.includes("var(--astro-accent"), "the crescent does not read the accent");
-    assert.ok(mark.includes("var(--astro-ink"), "the ink parts do not read the ink token");
+    assert.ok(
+      mark.includes("var(--astro-mark-ink"),
+      "the ink parts do not read the mark ink token",
+    );
     const hardcoded = mark.match(/(?:fill|stroke)="#(?!fff|000)[0-9A-Fa-f]{3,6}"/g) ?? [];
     assert.deepEqual(hardcoded, [], `hardcoded colour on a painted part: ${hardcoded.join(", ")}`);
   });
 
   it("falls back to the values brand.md publishes", () => {
     // Invisible until the tokens are missing, which is exactly when it matters.
-    assert.ok(mark.includes("var(--astro-ink, #241D12)"), "ink fallback is not brass light ink");
+    assert.ok(
+      mark.includes("var(--astro-mark-ink, #241D12)"),
+      "ink fallback is not brass light ink",
+    );
     assert.ok(
       mark.includes("var(--astro-accent, #865900)"),
       "accent fallback is not brass light accent",

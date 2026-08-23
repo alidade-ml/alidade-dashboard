@@ -232,6 +232,39 @@ describe("tokensFor", () => {
     }
   });
 
+  it("matches the mark's ink to the body ink in light mode", () => {
+    // The correction is dark-only. On a light ground a dark mass does not gain
+    // the apparent weight that makes the correction necessary.
+    for (const p of PRESETS) {
+      const t = tokensFor(p, "light");
+      assert.equal(t["--astro-mark-ink"], t["--astro-ink"], `${p.id} light`);
+    }
+  });
+
+  it("measures the mark's ink down in dark mode", () => {
+    // The mark fills a crescent across half its box; the wordmark is thin
+    // strokes. At equal colour the denser shape reads brighter, so the mark is
+    // dimmed to sit level with the text beside it.
+    for (const p of PRESETS) {
+      const t = tokensFor(p, "dark");
+      const lum = (hex: string) => {
+        const [r, g, b] = [1, 3, 5]
+          .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+          .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      assert.ok(
+        lum(t["--astro-mark-ink"]) < lum(t["--foreground"]),
+        `${p.id} dark: the mark's ink is not below the body ink`,
+      );
+      // Still a non-text UI element: 3:1 against the ground it sits on.
+      const c =
+        (Math.max(lum(t["--astro-mark-ink"]), lum(t["--background"])) + 0.05) /
+        (Math.min(lum(t["--astro-mark-ink"]), lum(t["--background"])) + 0.05);
+      assert.ok(c >= 3, `${p.id} dark: the mark measures ${c.toFixed(2)}:1 on its ground`);
+    }
+  });
+
   it("carries the brand tokens the inlined mark reads", () => {
     const t = tokensFor(PRESETS[0], "light");
     assert.equal(t["--astro-paper"], PUBLISHED.brass.light.paper);

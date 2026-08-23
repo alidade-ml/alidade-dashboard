@@ -151,6 +151,19 @@ const RAMP: Record<Mode, Record<string, [number, number]>> = {
   },
 };
 
+/**
+ * Lightness of the mark's ink in dark mode, against `ink` at 0.810.
+ *
+ * The mark and the wordmark are set in the same colour, but the mark fills a
+ * crescent across half its box while the word is thin strokes over the ground.
+ * Equal colour at very unequal coverage reads as unequal brightness, so the mark
+ * is measured down to sit level with the text beside it.
+ *
+ * Dark only. On light ground a dark mass does not gain the same apparent weight,
+ * and brand.md's rule that dark mode is not an inversion applies here too.
+ */
+const DARK_MARK_INK_L = 0.72;
+
 export function tokensFor(p: Preset, mode: Mode): Record<string, string> {
   const r = recipe(p, mode);
   // paper, ink and accent are the three values brand.md publishes, so they are
@@ -167,6 +180,10 @@ export function tokensFor(p: Preset, mode: Mode): Record<string, string> {
     "--secondary-foreground": r.ink,
     "--primary": r.accent,
     "--ring": r.accent,
+    "--astro-mark-ink":
+      mode === "dark"
+        ? toHex(DARK_MARK_INK_L, lerp(0.006, 0.026, DARK_SOFTNESS) * p.cm, p.H)
+        : r.ink,
   };
   if (mode === "dark") out["--primary-foreground"] = r.paper;
   for (const [name, [L, cf]] of Object.entries(RAMP[mode])) {

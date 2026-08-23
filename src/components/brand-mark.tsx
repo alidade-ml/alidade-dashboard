@@ -4,10 +4,14 @@ import { cn } from "@/lib/utils";
  * The astrolabe mark, inlined.
  *
  * Inlined rather than an <img> or background-image because the geometry reads
- * --astro-ink and --astro-accent, and an <img> has no cascade — it would sit at
- * the brass fallback on every palette and in both themes. The var() fallbacks
+ * --astro-mark-ink and --astro-accent, and an <img> has no cascade — it would sit
+ * at the brass fallback on every palette and in both themes. The var() fallbacks
  * below are brand.md's brass light values and only apply if the tokens are
  * missing entirely.
+ *
+ * The linework uses --astro-mark-ink rather than --astro-ink: in dark mode the
+ * mark's coverage makes it read brighter than the wordmark at the same colour,
+ * so it is measured down. In light the two are identical.
  *
  * One drawing at every size, minimum 16px. The embroidery cut is a separate
  * asset and is not used in the product. Geometry and draw order are specified in
@@ -78,7 +82,7 @@ export function BrandMark({ className }: { className?: string }) {
         className="astro-limb"
         mask="url(#astro-channel)"
         fill="none"
-        stroke="var(--astro-ink, #241D12)"
+        stroke="var(--astro-mark-ink, #241D12)"
         strokeWidth="2.2"
         strokeLinecap="round"
       >
@@ -88,12 +92,12 @@ export function BrandMark({ className }: { className?: string }) {
       </g>
 
       <g className="astro-letter" mask="url(#astro-offmass)">
-        <use href="#astro-letter" fill="var(--astro-ink, #241D12)" />
+        <use href="#astro-letter" fill="var(--astro-mark-ink, #241D12)" />
       </g>
 
       <g
         className="astro-grads"
-        stroke="var(--astro-ink, #241D12)"
+        stroke="var(--astro-mark-ink, #241D12)"
         strokeWidth="1.5"
         strokeLinecap="round"
       >
@@ -106,8 +110,8 @@ export function BrandMark({ className }: { className?: string }) {
 
       <g
         className="astro-rule"
-        fill="var(--astro-ink, #241D12)"
-        stroke="var(--astro-ink, #241D12)"
+        fill="var(--astro-mark-ink, #241D12)"
+        stroke="var(--astro-mark-ink, #241D12)"
         strokeLinecap="round"
       >
         <line x1="6.5682" y1="37.4057" x2="57.4318" y2="26.5943" strokeWidth="2.4" />
