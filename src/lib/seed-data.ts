@@ -11,6 +11,7 @@ import type {
   MetricSeries,
   Run,
 } from "./types";
+import { formatDuration } from "./format.ts";
 
 // Live Lambda rates pulled 2026-05-28 from /instance-types. Cents per hour.
 // Update via the snippet in plans/cost-tracking.md when Lambda revises pricing.
@@ -174,7 +175,7 @@ export function seedExperiments(): Experiment[] {
       state: s.state,
       gpu_type: s.gpu,
       started_at: startedAt,
-      duration: s.duration,
+      duration: formatDuration(s.duration),
       outcome: s.outcome,
       // Total run count across every version. The latest version's run
       // count is what the home page expansion shows by default; this
