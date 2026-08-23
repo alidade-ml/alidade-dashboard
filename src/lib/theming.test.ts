@@ -77,13 +77,29 @@ describe("rendered components read tokens", () => {
     assert.deepEqual(offenders, [], `off-palette utility:\n${offenders.join("\n")}`);
   });
 
-  it("keeps one source for the categorical trace palette", () => {
-    // cost-page carried a verbatim copy of the first six entries. Two lists
-    // drift, and a stacked area chart disagreeing with a line chart about which
-    // colour means which submitter is worse than either choice alone.
+  it("takes the trace palette from the server, not the bundled fallback", () => {
+    // Two failures, found one after the other. cost-page first carried a
+    // verbatim copy of the first six colours; replacing that with the bundled
+    // constant fixed the duplication and not the divergence, because the
+    // experiment page fetches the palette and the constant is only the offline
+    // fallback. On a NUC whose colors.json differs from the shipped default the
+    // two pages coloured the same submitter differently.
+    //
+    // Only the hook may read the fallback.
+    const offenders: string[] = [];
+    for (const rel of renderedFiles()) {
+      if (rel.endsWith(join("hooks", "use-chart-palette.ts"))) continue;
+      if (read(rel).includes("DEFAULT_CHART_PALETTE")) offenders.push(rel);
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      `these read the fallback directly instead of useChartPalette:\n${offenders.join("\n")}`,
+    );
+
     const cost = read("src", "components", "cost-page.tsx");
     assert.doesNotMatch(cost, /\[\s*"#[0-9A-Fa-f]{6}"/, "cost-page declares its own palette array");
-    assert.match(cost, /DEFAULT_CHART_PALETTE/, "cost-page does not use the shared palette");
+    assert.match(cost, /useChartPalette\(\)/, "cost-page does not use the shared hook");
   });
 });
 
