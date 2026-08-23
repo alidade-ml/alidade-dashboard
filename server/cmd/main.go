@@ -68,11 +68,10 @@ func main() {
 	//     case at ~30 KB per metric series) so a long-running NUC with
 	//     many experiments × many metrics can't OOM the dashboard.
 	//
-	// The experiments list carries a third window INSIDE the 2s one:
-	// api.DefaultRunCountTTL. Its run counts cost a repo-wide scan in Aim
-	// and change only when a run is created, so they are memoised for 30s
-	// while the row's state stays 2s fresh. Set there rather than here
-	// because it caches a value, not a response; see EXPLOAD-1.00.
+	//   - 30s on the experiments list's run counts, nested inside its 2s
+	//     window (api.DefaultRunCountTTL). They cost a repo-wide scan in Aim
+	//     and change only when a run is created. Set there rather than here
+	//     because it caches a value rather than a response.
 	experimentsCache := api.NewTTLCache(2*time.Second, 0)
 	experimentRunsCache := api.NewTTLCache(2*time.Second, 0)
 	metricSeriesCache := api.NewTTLCache(10*time.Second, 1000)

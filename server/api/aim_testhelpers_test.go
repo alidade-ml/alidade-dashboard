@@ -251,10 +251,10 @@ func encVal(v any) []byte {
 
 // --- serving /api/runs/search/run/ from the same fakeRun fixtures ---
 //
-// So the handlers that switched from enumerating to querying (RUNSET-1)
-// are exercised by the SAME tests that pinned their behaviour before.
-// If an existing assertion needed editing to pass, either behaviour moved
-// or the test was over-fitted to the old implementation.
+// So the handlers that switched from enumerating to querying are exercised by
+// the SAME tests that pinned their behaviour before. If an existing assertion
+// needed editing to pass, either behaviour moved or the test was over-fitted to
+// the old implementation.
 
 // aimQueryTerm is one `run['tag'] == 'value'` equality.
 var aimQueryTerm = regexp.MustCompile(`run\['([^']+)'\] == '((?:[^'\\]|\\.)*)'`)

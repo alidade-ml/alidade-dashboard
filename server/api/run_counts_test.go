@@ -1,17 +1,11 @@
 package api
 
-// Tests for the home page's run count — the number the whole EXPLOAD-1
-// ticket is about, and which no test asserted before this file existed.
+// Tests for the home page's run count, which nothing asserted before.
 //
-// Two things are being protected here and they fail differently:
-//
-//   - WHAT is counted. Before this slice the count included sample runs,
-//     because there were two exclusion lists and only one of them learned
-//     about samples (RUNKIND-1 fixed HandleExperimentRuns and never saw
-//     aimRunIndex).
-//   - HOW MANY requests it takes. The count was correct-ish and cost one
-//     HTTP call per run in the repo. A body-only assertion cannot tell the
-//     two implementations apart, so the fan-out is asserted directly.
+// Two properties, failing differently: WHAT is counted (sample runs used to be
+// included, because two exclusion lists disagreed), and HOW MANY requests it
+// takes. A body-only assertion cannot distinguish one search from a walk over
+// every run, so the fan-out is asserted directly.
 
 import (
 	"database/sql"
@@ -175,11 +169,9 @@ func TestRunCountsForExperimentAbsentFromAim(t *testing.T) {
 
 // --- The fan-out, which is the point of the ticket ---
 
-// TestRunCountsAskInsteadOfWalking is the regression guard for EXPLOAD-1.
-//
 // Body assertions cannot see the difference between asking Aim once and
-// enumerating every run: both produce the same numbers. Only the request
-// count can, and a timing assertion would be flaky where this is exact.
+// enumerating every run — both produce the same numbers. Only the request count
+// can, and a timing assertion would be flaky where this is exact.
 func TestRunCountsAskInsteadOfWalking(t *testing.T) {
 	var listCalls int32
 	runs := make([]fakeRun, 0, 40)
@@ -241,13 +233,9 @@ func TestRunCountsRefreshAfterTheTTL(t *testing.T) {
 
 // --- The drift guard ---
 
-// TestNonRowKindsAreNotRows ties the count's exclusion list to the run
-// list's switch, which is the thing that drifted.
-//
-// Both lists exist because both endpoints answer "is this a row". They
-// disagreed for a whole release: HandleExperimentRuns excluded three kinds,
-// aimRunIndex excluded two. Adding a kind to NonRowKinds without teaching
-// the switch fails here.
+// TestNonRowKindsAreNotRows ties the count's exclusion list to the run list's
+// switch. The two disagreed for a whole release; adding a kind to NonRowKinds
+// without teaching the switch fails here.
 func TestNonRowKindsAreNotRows(t *testing.T) {
 	for _, kind := range NonRowKinds {
 		t.Run(kind, func(t *testing.T) {

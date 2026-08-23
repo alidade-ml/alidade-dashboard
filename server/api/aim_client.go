@@ -673,11 +673,8 @@ const (
 // eval runs render on the Eval tab, sample runs on the Examples tab, and
 // metadata runs are the engine's own cost bookkeeping.
 //
-// One list because there were two, and they disagreed. HandleExperimentRuns
-// excluded all three; aimRunIndex excluded only eval and metadata, so the
-// home page counted sample runs as models. RUNKIND-1 fixed the first switch
-// and did not know about the second. TestNonRowKindsAreNotRows asserts they
-// stay in step.
+// One list because there were two and they disagreed, which is how sample
+// runs came to be counted as models on the home page.
 var NonRowKinds = []string{KindEval, SampleKind, KindMetadata}
 
 // SearchedRun is one run from a search.
@@ -705,12 +702,10 @@ func QueryByTag(tag, value string) string {
 
 // QueryKindNotIn builds `run['astrolabe.kind'] not in ['a','b']`.
 //
-// Verified against a live Aim: the grammar is accepted, and on a repo whose
-// runs are indexed it matches exactly the complement. On a repo whose runs
-// are NOT indexed it matches everything, because a run with no indexed
-// params satisfies a negative test — see EXPLOAD-1.00. That is the known
-// failure direction of this query and the reason callers must not render a
-// zero as a confident answer.
+// On a repo whose runs are indexed this matches exactly the complement. On one
+// whose runs are not, it matches everything: a run with no indexed params
+// satisfies a negative test. That is this query's failure direction, and why
+// callers must not render a zero as a confident answer.
 func QueryKindNotIn(kinds []string) string {
 	quoted := make([]string, 0, len(kinds))
 	for _, k := range kinds {
@@ -722,10 +717,8 @@ func QueryKindNotIn(kinds []string) string {
 
 // QueryNotArchived builds `run.archived == False`.
 //
-// Not optional for a count. Aim's search returns archived runs — measured:
-// `run.archived == True` returns them — while the walk this replaces skipped
-// them explicitly. Without this term the count would silently gain every
-// archived run.
+// Aim already excludes archived runs from search by default. The term is
+// explicit so the count does not rest on that default.
 func QueryNotArchived() string {
 	return "run.archived == False"
 }
@@ -733,19 +726,12 @@ func QueryNotArchived() string {
 // ExperimentRunCounts returns, per Aim experiment name, how many runs that
 // experiment produced — the population an experiment page renders as rows.
 //
-// One search, evaluated server-side, replacing a fan-out of one HTTP request
-// per run in the repo. At 2,500 runs that walk measured 10,696ms and this
-// measures ~276ms (EXPLOAD-1.00).
-//
 // The count is index-backed, because Aim's search is. A run written while
-// aim-tracking was down is never indexed and never backfilled, and this
-// query will not see it. The count is therefore a floor, and a zero is not
-// evidence of an empty experiment — HandleExperiments renders it as unknown
-// rather than as 0.
+// aim-tracking was down is never indexed and never backfilled, so this query
+// will not see it: the count is a floor, and zero is not evidence of an empty
+// experiment.
 //
-// An error is an error. An empty map means no run matched, never "count
-// everything" — the same rule SearchRuns states, and the one that keeps this
-// from being worse than the walk.
+// An empty map means no run matched, never "count everything".
 func (c *AimClient) ExperimentRunCounts() (map[string]int, error) {
 	q := QueryKindNotIn(NonRowKinds) + " and " + QueryNotArchived()
 	runs, err := c.searchRunsLean(q)

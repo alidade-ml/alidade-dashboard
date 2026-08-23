@@ -27,23 +27,17 @@ func NewHandler(aim *AimClient, state *StateReader, colors []string) *Handler {
 
 // DefaultRunCountTTL is how long a run-count map is reused.
 //
-// The experiments list has two freshness classes and has been treating them
-// as one. State, outcome and version change constantly and sit behind the 2s
-// response cache in cmd/main.go. Run counts change only when a run is
-// created, and cost a repo-wide scan to recompute — measured at 254ms on a
-// 2,500-run repo, of which 185ms is Aim scanning every run before it matches
-// anything, so no narrower query helps (EXPLOAD-1.00).
+// The experiments list has two freshness classes. State and outcome change
+// constantly and sit behind the 2s response cache; run counts change only when
+// a run is created, and cost a repo-wide scan in Aim to recompute — most of it
+// spent scanning rather than matching, so no narrower query helps.
 //
-// At 30s the scan is amortised across ~15 polls and the visible cost is that
-// a newly created run takes up to half a minute to appear in the badge.
-// Nothing else on the row is delayed.
+// The visible cost is that a new run takes up to 30s to appear in the badge.
 const DefaultRunCountTTL = 30 * time.Second
 
-// runCountCache memoises one map, not a keyed set of responses.
-//
-// Deliberately not the TTLCache middleware: that keys on the request URI and
-// caches a whole response. This is an inner value with its own lifetime,
-// living behind a response cache that expires 15x sooner.
+// runCountCache memoises one map, not a keyed set of responses. Deliberately
+// not the TTLCache middleware, which keys on request URI and caches a whole
+// response; this is an inner value living behind a shorter-lived one.
 type runCountCache struct {
 	mu      sync.Mutex
 	ttl     time.Duration
@@ -51,9 +45,8 @@ type runCountCache struct {
 	fetched time.Time
 }
 
-// SetRunCountTTL overrides the reuse window. Zero disables reuse, which is
-// what tests want — a cached map would make the second assertion in a test
-// measure the first one's fetch.
+// SetRunCountTTL overrides the reuse window. Zero disables reuse, so a test
+// asserting twice does not measure its own first fetch.
 func (h *Handler) SetRunCountTTL(d time.Duration) {
 	h.runCounts.mu.Lock()
 	defer h.runCounts.mu.Unlock()
@@ -63,10 +56,9 @@ func (h *Handler) SetRunCountTTL(d time.Duration) {
 
 // experimentRunCounts returns the cached count map, refreshing it when stale.
 //
-// An error is returned rather than swallowed. Serving a stale map would be
-// defensible; serving an empty one is not, because every row would render as
-// having produced nothing, which is indistinguishable from a NUC where
-// nobody has run anything.
+// Errors propagate rather than degrading to an empty map: every row would then
+// render as having produced nothing, which a reader cannot tell apart from a
+// machine nobody has used.
 func (h *Handler) experimentRunCounts() (map[string]int, error) {
 	h.runCounts.mu.Lock()
 	defer h.runCounts.mu.Unlock()
@@ -333,15 +325,10 @@ func (h *Handler) aimRunIndex() (
 // Aim runs. Backfilled metadata-only submits (no composer training
 // run in Aim) would otherwise be undercounted.
 func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
-	// One search, not one request per run in the repo. The walk this
-	// replaced measured 10,696ms on a 2,500-run repo against ~276ms here,
-	// and 99% of the endpoint's time was in the walk (EXPLOAD-1.00).
 	runCounts, err := h.experimentRunCounts()
 	if err != nil {
-		// Deliberately not a degraded 200. Rendering every row with zero
-		// runs is indistinguishable from a NUC nobody has used, and the
-		// user would go looking for their experiments rather than at the
-		// dashboard's own health.
+		// Not a degraded 200: a page of zero-run experiments sends the
+		// reader looking for their data rather than at the dashboard.
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -489,9 +476,7 @@ func (h *Handler) HandleExperimentRuns(w http.ResponseWriter, r *http.Request) {
 					return
 				case SampleKind:
 					// Not a row either — the Examples tab renders it, and
-					// its model is the row. Missing from this switch until
-					// RUNKIND-1: eval and metadata were handled when they
-					// were introduced, sample was not.
+					// its model is the row.
 					results <- result{index: idx}
 					return
 				case KindMetadata:
@@ -686,8 +671,7 @@ func (h *Handler) HandleExperimentIncludes(w http.ResponseWriter, r *http.Reques
 	}
 
 	// One query per include, rather than an index of the whole project
-	// built once and thrown away. `aimRunIndex` stays for the two
-	// endpoints whose response IS every run — see RUNSET-1.02.
+	// built once and thrown away.
 	resolved := make([]IncludeEntry, 0, len(includeNames))
 	for _, incName := range includeNames {
 		resolved = append(resolved, h.resolveIncludeByQuery(incName))
