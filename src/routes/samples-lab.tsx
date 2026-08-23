@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { SamplesTab } from "@/components/samples-tab";
 
 /**
- * Development-only workbench for the Examples tab's layouts.
+ * Development-only workbench for the Samples tab's layouts.
  *
  * A separate route rather than a tab on the experiment page: the layouts are
  * what is under test here, and they can be judged without the run-selection,

@@ -1,5 +1,5 @@
 /**
- * Every decision the Examples tab makes about where a sample is drawn.
+ * Every decision the Samples tab makes about where a sample is drawn.
  *
  * This file contains no JSX on purpose. The same bug — a coordinate rendered
  * twice, or not at all — surfaced three times in three different groupings,
@@ -292,9 +292,13 @@ export function setFold(view: SampleView, fold: number): SampleView {
 export const MAX_FOLD = 2;
 export const FIXED_FOLD = 2;
 
-/** The whole offered surface, named. Three views, because three is what
- *  survived inspection — every other reachable layout either fragmented the
- *  page, crammed a cell, or drew a page another view already drew. */
+/** The whole offered surface, named.
+ *
+ * Three views, because three is what survived inspection — every other
+ * reachable layout either fragmented the page, crammed a cell, or drew a page
+ * another view already drew.
+ *
+ * Not all three are always offered: see availableViews. */
 export interface NamedView {
   id: string;
   name: string;
@@ -306,23 +310,52 @@ export interface NamedView {
 export const VIEWS: NamedView[] = [
   {
     id: "side-by-side",
-    name: "Side by side",
-    hint: "One row per input, one column per model",
+    name: "Comparison View",
+    hint: "Same input, one column per model",
     order: ["sampleSet", "input", "model", "step"],
   },
   {
     id: "model-rows",
-    name: "Model rows",
-    hint: "One row per model, inputs across",
+    name: "Model View",
+    hint: "One model at a time, its inputs across",
     order: ["sampleSet", "model", "input", "step"],
   },
   {
     id: "model-first",
-    name: "Model first",
-    hint: "A model and everything it made, across sample sets",
+    name: "Catalog View",
+    hint: "One model across every sample set at once",
     order: ["model", "sampleSet", "input", "step"],
   },
 ];
+
+/**
+ * The views worth offering for a given batch of rows.
+ *
+ * A picker entry that draws the page another entry already drew is not a
+ * choice, and the reader has to click both to find that out. Which views are
+ * distinct depends on the data, measured across the models-by-sets matrix:
+ *
+ *   - **Comparison View** puts models in columns, so it needs at least two
+ *     models. With one it loses its column dimension entirely and renders as
+ *     single-cell boxes stacked down the page — comparing one thing.
+ *   - **Catalog View** differs from Model View only by merging sample sets,
+ *     which needs at least two models AND at least two sets. Below that it
+ *     draws an identical grid with the heading written backwards.
+ *   - **Model View** always applies, and is the fallback when nothing else does.
+ */
+export function availableViews(rows: SampleRow[]): NamedView[] {
+  const models = new Set<string>();
+  const sets = new Set<string>();
+  for (const r of rows) {
+    models.add(r.model);
+    sets.add(r.sampleSet);
+  }
+  return VIEWS.filter((v) => {
+    if (v.id === "side-by-side") return models.size > 1;
+    if (v.id === "model-first") return models.size > 1 && sets.size > 1;
+    return true;
+  });
+}
 
 export function viewFor(named: NamedView): SampleView {
   return { order: named.order, fold: FIXED_FOLD };

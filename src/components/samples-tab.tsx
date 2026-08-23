@@ -1,5 +1,5 @@
 /**
- * Examples tab — what a model actually produces.
+ * Samples tab — what a model actually produces.
  *
  * Every sample carries four coordinates: sample set, input, model, step. There
  * is no single correct nesting, because the question changes: "how do my two
@@ -32,8 +32,10 @@ import {
   DIMENSION_LABELS,
   VIEWS,
   cardLabelDims,
+  availableViews,
   cellOwnsInput,
   dimensionValue,
+  namedViewFor,
   distinct,
   planView,
   type Crumb,
@@ -533,12 +535,22 @@ export function SamplesView({
   // runs the shared panel has left visible.
   const rows = allRows;
 
+  // Which views this data supports. A view can stop being offered while the
+  // page is open — a run toggled off can take the second model with it — so
+  // the current choice is re-checked rather than trusted.
+  const offered = useMemo(() => availableViews(rows), [rows]);
+  const activeView = useMemo(() => {
+    const current = namedViewFor(view);
+    if (current && offered.some((v) => v.id === current.id)) return view;
+    return viewFor(offered[0] ?? VIEWS[1]);
+  }, [view, offered]);
+
   // Every layout decision happens here, in one testable place. The components
   // below render the result and decide nothing — see sample-grouping.test.ts,
   // which sweeps all 96 views this panel can produce.
-  const plan = useMemo(() => planView(rows, view), [rows, view]);
+  const plan = useMemo(() => planView(rows, activeView), [rows, activeView]);
 
-  const { order, fold } = view;
+  const { order, fold } = activeView;
   const summary = [
     fold > 0
       ? order
@@ -594,7 +606,7 @@ export function SamplesView({
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         {!bare && (
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <h1 className="text-base font-semibold text-foreground">Examples</h1>
+            <h1 className="text-base font-semibold text-foreground">Samples</h1>
             <p className="text-xs text-muted-foreground">
               {rows.length} samples &middot; {summary || "ungrouped"}
             </p>
@@ -613,7 +625,7 @@ export function SamplesView({
           clears AppShell's own sticky header; the column scrolls internally
           if the dials make it taller than the viewport. */}
       <div className="flex w-full shrink-0 flex-col gap-3 lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:w-72 lg:overflow-y-auto">
-        <SampleGroupingPanel view={view} onChange={setView} />
+        <SampleGroupingPanel view={activeView} onChange={setView} views={offered} />
         {controls}
         {/* No model legend here. The shared RunsPanel beside this column is
             already the legend — same colour dots, same toggle — and two

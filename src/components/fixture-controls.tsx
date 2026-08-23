@@ -97,7 +97,7 @@ export function FixtureControls({ shape, onChange, total }: Props) {
       <div className="flex flex-col gap-2 p-2.5">
         <Stepper
           label="Models"
-          hint="columns in Side by side"
+          hint="columns in Comparison View"
           value={shape.models}
           min={1}
           max={MODEL_NAMES.length}

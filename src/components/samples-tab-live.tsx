@@ -1,5 +1,5 @@
 /**
- * Examples tab, over real data.
+ * Samples tab, over real data.
  *
  * Mirrors EvalTab's shape deliberately: same props, same run-scoping, same
  * respect for the shared RunsPanel toggle. A reader who knows one should

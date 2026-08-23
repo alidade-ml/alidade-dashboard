@@ -1,5 +1,6 @@
 /**
- * View picker for the Examples tab. Three options, no controls behind them.
+ * View picker for the Samples tab. Up to three options, no controls behind
+ * them, and hidden entirely when the data supports only one.
  *
  * The drag-and-drop ordering it replaces was a real instrument while the
  * question was open — building it is how the four coordinates turned out not
@@ -13,16 +14,23 @@
  * stored view is a surface someone could use to hide a model from everyone
  * else's default page.
  */
-import { VIEWS, namedViewFor, viewFor, type SampleView } from "@/lib/sample-grouping";
+import { namedViewFor, viewFor, type NamedView, type SampleView } from "@/lib/sample-grouping";
 import { cn } from "@/lib/utils";
 
 interface Props {
   view: SampleView;
   onChange: (next: SampleView) => void;
+  /** Which views this batch is worth offering — see availableViews. */
+  views: NamedView[];
 }
 
-export function SampleGroupingPanel({ view, onChange }: Props) {
+export function SampleGroupingPanel({ view, onChange, views }: Props) {
   const current = namedViewFor(view);
+
+  // One option is not a choice. With a single model there is only ever one
+  // distinct layout, and a picker offering it alone is a control that cannot
+  // be used for anything.
+  if (views.length < 2) return null;
 
   return (
     <div className="rounded-lg border border-border bg-card">
@@ -31,7 +39,7 @@ export function SampleGroupingPanel({ view, onChange }: Props) {
       </header>
 
       <ul className="flex flex-col gap-1 p-2">
-        {VIEWS.map((v) => {
+        {views.map((v) => {
           const active = current?.id === v.id;
           return (
             <li key={v.id}>
