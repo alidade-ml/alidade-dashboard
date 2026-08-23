@@ -19,7 +19,17 @@ export type SearchParams = {
   submitter?: string;
   repo?: string;
   sort?: string;
+  page?: number;
 };
+
+/** Page 1 is the default and is left out of the URL. Anything unparseable,
+ *  fractional or below 1 collapses to it rather than rendering nothing. */
+function pageParam(raw: unknown): number | undefined {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return undefined;
+  const page = Math.floor(n);
+  return page > 1 ? page : undefined;
+}
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -28,6 +38,7 @@ export const Route = createFileRoute("/")({
     submitter: typeof search.submitter === "string" ? search.submitter : undefined,
     repo: typeof search.repo === "string" ? search.repo : undefined,
     sort: typeof search.sort === "string" ? search.sort : undefined,
+    page: pageParam(search.page),
   }),
 });
 
