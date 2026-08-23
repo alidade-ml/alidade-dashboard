@@ -352,6 +352,10 @@ func encodeSearchFromFakeRuns(runs []fakeRun) []byte {
 		out = append(out, encFrame(encVal(fr.displayName()))...)
 		add(encPath(fr.hash, "props", "archived"), encVal(fr.archived))
 		add(encPath(fr.hash, "props", "creation_time"), encVal(fr.creationTime))
+		// Verified present in a live search response. Omitting it here made
+		// any test asserting on a searched run's end time or active flag
+		// measure this fixture's gap rather than the code.
+		add(encPath(fr.hash, "props", "end_time"), encVal(fr.endTime))
 		add(encPath(fr.hash, "props", "experiment", "name"), encVal(fr.experiment))
 		for k, v := range fr.tags {
 			if s, ok := v.(string); ok {
