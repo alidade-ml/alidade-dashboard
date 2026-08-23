@@ -640,7 +640,7 @@ function ExperimentBody({
                 value="samples"
                 className="rounded-none border-b-2 border-transparent bg-transparent px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
               >
-                Examples
+                Samples
               </TabsTrigger>
             )}
           </TabsList>
