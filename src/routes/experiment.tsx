@@ -25,6 +25,8 @@ import { useGlobalShortcuts } from "@/hooks/use-global-shortcuts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EvalTabFromAllRuns } from "@/components/eval-tab";
 import { SamplesTabLive } from "@/components/samples-tab-live";
+import { useTabPresence } from "@/hooks/use-tab-presence";
+import { anyTabVisible, resolveActiveTab, visibleTabs, type TabId } from "@/lib/tab-presence";
 import { RunsPanel } from "@/components/runs-panel";
 
 const searchSchema = z.object({
@@ -394,6 +396,8 @@ function ExperimentBody({
   // Keyed on kind rather than on `evaluated`: a model pulled in because
   // this experiment evaluated it may still be a real training run from
   // another experiment, and that one does have a curve worth overlaying.
+  const [preferredTab, setPreferredTab] = useState<TabId | undefined>(undefined);
+
   const untrainedHashes = useMemo(() => {
     const set = new Set<string>();
     for (const r of runsState.data ?? []) {
@@ -416,6 +420,13 @@ function ExperimentBody({
   }, [visibleRuns, untrainedHashes, runColors, runMeta, hiddenRuns]);
 
   // Discover available metrics across all runs (native + included)
+  // Tabs follow the data. A run set with no evals should not offer an Eval
+  // tab that opens onto an empty state — on every experiment, forever.
+  const runHashes = useMemo(() => allRuns.map((r) => r.hash), [allRuns]);
+  const presence = useTabPresence(runHashes);
+  const tabs = visibleTabs({ training: chartRuns.length > 0, ...presence });
+  const activeTab = resolveActiveTab(tabs, preferredTab);
+
   const metricNames = useMemo(() => {
     const set = new Set<string>();
     for (const r of runsState.data ?? []) {
@@ -596,225 +607,250 @@ function ExperimentBody({
             bottom border on active) so this reads as a major page-section
             switch rather than a minor pill toggle. The default pill style
             from ui/tabs blends into the dense surrounding chrome. */}
-        <Tabs defaultValue="training" className="w-full">
+        {!anyTabVisible(tabs) && (
+          <div className="rounded-lg border border-border bg-surface px-4 py-12 text-center text-sm text-muted-foreground">
+            No data yet…
+          </div>
+        )}
+
+        <Tabs
+          value={activeTab ?? undefined}
+          onValueChange={(v) => setPreferredTab(v as TabId)}
+          className={cn("w-full", !anyTabVisible(tabs) && "hidden")}
+        >
           <TabsList className="h-auto bg-transparent border-b border-border w-full justify-start rounded-none p-0 gap-1">
-            <TabsTrigger
-              value="training"
-              className="rounded-none border-b-2 border-transparent bg-transparent px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-            >
-              Training
-            </TabsTrigger>
-            <TabsTrigger
-              value="eval"
-              className="rounded-none border-b-2 border-transparent bg-transparent px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-            >
-              Eval
-            </TabsTrigger>
-            <TabsTrigger
-              value="examples"
-              className="rounded-none border-b-2 border-transparent bg-transparent px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-            >
-              Examples
-            </TabsTrigger>
+            {tabs.training && (
+              <TabsTrigger
+                value="training"
+                className="rounded-none border-b-2 border-transparent bg-transparent px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+              >
+                Training
+              </TabsTrigger>
+            )}
+            {tabs.eval && (
+              <TabsTrigger
+                value="eval"
+                className="rounded-none border-b-2 border-transparent bg-transparent px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+              >
+                Eval
+              </TabsTrigger>
+            )}
+            {tabs.samples && (
+              <TabsTrigger
+                value="samples"
+                className="rounded-none border-b-2 border-transparent bg-transparent px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+              >
+                Examples
+              </TabsTrigger>
+            )}
           </TabsList>
 
-          <TabsContent value="training" className="mt-3">
-            {/* Body — charts grid + sidebar */}
-            <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-5">
-              {/* Charts column */}
-              <div className="space-y-4 min-w-0">
-                {visibleMetrics.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground">
-                    All metrics hidden — toggle one back on from the sidebar.
-                  </div>
-                )}
-                {visibleMetrics.map((metricName) => (
-                  <MetricChart
-                    key={metricName}
-                    metricName={metricName}
-                    runs={chartRuns}
-                    xMode={xMode}
-                  />
-                ))}
-              </div>
-
-              {/* Sidebar */}
-              <aside className="space-y-3">
-                {/* X-axis selector */}
-                <div className="rounded-lg border border-border bg-card p-3">
-                  <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">
-                    X-axis
-                  </div>
-                  <div className="flex rounded-md border border-border bg-surface p-0.5 text-xs">
-                    <SegButton active={xMode === "step"} onClick={() => setXMode("step")}>
-                      Step
-                    </SegButton>
-                    <SegButton active={xMode === "wall_time"} onClick={() => setXMode("wall_time")}>
-                      Wall time
-                    </SegButton>
-                  </div>
-                  <p className="mt-2 text-[10px] text-muted-foreground leading-relaxed">
-                    Drag any chart to zoom — all charts sync. Double-click to reset.
-                  </p>
+          {tabs.training && (
+            <TabsContent value="training" className="mt-3">
+              {/* Body — charts grid + sidebar */}
+              <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-5">
+                {/* Charts column */}
+                <div className="space-y-4 min-w-0">
+                  {visibleMetrics.length === 0 && (
+                    <div className="rounded-lg border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground">
+                      All metrics hidden — toggle one back on from the sidebar.
+                    </div>
+                  )}
+                  {visibleMetrics.map((metricName) => (
+                    <MetricChart
+                      key={metricName}
+                      metricName={metricName}
+                      runs={chartRuns}
+                      xMode={xMode}
+                    />
+                  ))}
                 </div>
 
-                {/* Runs panel — shared with the Eval tab. State lives in
+                {/* Sidebar */}
+                <aside className="space-y-3">
+                  {/* X-axis selector */}
+                  <div className="rounded-lg border border-border bg-card p-3">
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">
+                      X-axis
+                    </div>
+                    <div className="flex rounded-md border border-border bg-surface p-0.5 text-xs">
+                      <SegButton active={xMode === "step"} onClick={() => setXMode("step")}>
+                        Step
+                      </SegButton>
+                      <SegButton
+                        active={xMode === "wall_time"}
+                        onClick={() => setXMode("wall_time")}
+                      >
+                        Wall time
+                      </SegButton>
+                    </div>
+                    <p className="mt-2 text-[10px] text-muted-foreground leading-relaxed">
+                      Drag any chart to zoom — all charts sync. Double-click to reset.
+                    </p>
+                  </div>
+
+                  {/* Runs panel — shared with the Eval tab. State lives in
                 this component (ExperimentBody); the panel is rendered
                 in both tabs, so hiding a run on Training also hides it
                 on Eval. */}
-                <RunsPanel
-                  visibleRuns={visibleRuns}
-                  selectedVersionLabel={selectedVersion?.label}
-                  runFilter={runFilter}
-                  onRunFilterChange={setRunFilter}
-                  hiddenRuns={hiddenRuns}
-                  setHiddenRuns={setHiddenRuns}
-                  runColors={runColors}
-                  runMeta={runMeta}
-                  comparisonHashes={comparisonHashesSet}
-                  showSubmitterLines={showSubmitterLines}
-                  onAddRuns={() => setModalOpen(true)}
-                  onRemoveComparison={(hash) => {
-                    // Filter both states — the removed run could be in
-                    // either bucket. removedFromIncludes suppresses it
-                    // on next include-fetch so the seeded set doesn't
-                    // silently re-add it.
-                    setSeededComparison((prev) => prev.filter((c) => c.hash !== hash));
-                    setUserAddedComparison((prev) => prev.filter((c) => c.hash !== hash));
-                    setRemovedFromIncludes((prev) => new Set([...prev, hash]));
-                  }}
-                />
+                  <RunsPanel
+                    visibleRuns={visibleRuns}
+                    selectedVersionLabel={selectedVersion?.label}
+                    runFilter={runFilter}
+                    onRunFilterChange={setRunFilter}
+                    hiddenRuns={hiddenRuns}
+                    setHiddenRuns={setHiddenRuns}
+                    runColors={runColors}
+                    runMeta={runMeta}
+                    comparisonHashes={comparisonHashesSet}
+                    showSubmitterLines={showSubmitterLines}
+                    onAddRuns={() => setModalOpen(true)}
+                    onRemoveComparison={(hash) => {
+                      // Filter both states — the removed run could be in
+                      // either bucket. removedFromIncludes suppresses it
+                      // on next include-fetch so the seeded set doesn't
+                      // silently re-add it.
+                      setSeededComparison((prev) => prev.filter((c) => c.hash !== hash));
+                      setUserAddedComparison((prev) => prev.filter((c) => c.hash !== hash));
+                      setRemovedFromIncludes((prev) => new Set([...prev, hash]));
+                    }}
+                  />
 
-                {/* Metric toggles */}
-                {metricNames.length > 1 && (
-                  <div className="rounded-lg border border-border bg-card overflow-hidden">
-                    <div className="px-3 py-2 border-b border-border text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                      Metrics
-                    </div>
-                    <ul className="max-h-[200px] overflow-y-auto scrollbar-thin">
-                      {metricNames.map((m) => {
-                        const hidden = hiddenMetrics.has(m);
-                        return (
-                          <li key={m}>
-                            <button
-                              onClick={() =>
-                                setHiddenMetrics((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(m)) next.delete(m);
-                                  else next.add(m);
-                                  return next;
-                                })
-                              }
-                              className={cn(
-                                "w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-muted/50 flex items-center gap-2",
-                                hidden && "text-muted-foreground line-through",
-                              )}
-                            >
-                              <span
+                  {/* Metric toggles */}
+                  {metricNames.length > 1 && (
+                    <div className="rounded-lg border border-border bg-card overflow-hidden">
+                      <div className="px-3 py-2 border-b border-border text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        Metrics
+                      </div>
+                      <ul className="max-h-[200px] overflow-y-auto scrollbar-thin">
+                        {metricNames.map((m) => {
+                          const hidden = hiddenMetrics.has(m);
+                          return (
+                            <li key={m}>
+                              <button
+                                onClick={() =>
+                                  setHiddenMetrics((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(m)) next.delete(m);
+                                    else next.add(m);
+                                    return next;
+                                  })
+                                }
                                 className={cn(
-                                  "h-1.5 w-1.5 rounded-full",
-                                  hidden ? "bg-muted-foreground/40" : "bg-primary",
+                                  "w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-muted/50 flex items-center gap-2",
+                                  hidden && "text-muted-foreground line-through",
                                 )}
-                              />
-                              {m}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "h-1.5 w-1.5 rounded-full",
+                                    hidden ? "bg-muted-foreground/40" : "bg-primary",
+                                  )}
+                                />
+                                {m}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
 
-                {/* Per-run stats — one row per run of the selected version, plus
+                  {/* Per-run stats — one row per run of the selected version, plus
                 a separate "Included" group for runs pulled in from other
                 experiments (via --include or the comparison modal). The
                 metric + best/last selector applies to both groups so a
                 researcher can see how an included run compares against
                 this experiment's runs at a glance. */}
-                <RunStatsTable
-                  versionLabel={selectedVersion?.label}
-                  runs={selectedVersion?.runs ?? []}
-                  includedRuns={includedRunsForTable}
-                  runColors={runColors}
-                  availableMetrics={metricNames}
-                  showSubmitterLines={showSubmitterLines}
-                />
-              </aside>
-            </div>
-          </TabsContent>
+                  <RunStatsTable
+                    versionLabel={selectedVersion?.label}
+                    runs={selectedVersion?.runs ?? []}
+                    includedRuns={includedRunsForTable}
+                    runColors={runColors}
+                    availableMetrics={metricNames}
+                    showSubmitterLines={showSubmitterLines}
+                  />
+                </aside>
+              </div>
+            </TabsContent>
+          )}
 
-          <TabsContent value="eval" className="mt-3">
-            {/* Same two-column layout as Training so the shared RunsPanel
+          {tabs.eval && (
+            <TabsContent value="eval" className="mt-3">
+              {/* Same two-column layout as Training so the shared RunsPanel
                 sits in the same place, regardless of tab. Hiding a run
                 on this tab also hides it on Training (and vice versa). */}
-            <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-5">
-              <div className="space-y-4 min-w-0">
-                <EvalTabFromAllRuns
-                  allRuns={allRuns}
-                  currentRunHash={selectedVersion?.runs[0]?.hash}
-                  runColors={runColors}
-                  hiddenRunHashes={hiddenRuns}
-                />
+              <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-5">
+                <div className="space-y-4 min-w-0">
+                  <EvalTabFromAllRuns
+                    allRuns={allRuns}
+                    currentRunHash={selectedVersion?.runs[0]?.hash}
+                    runColors={runColors}
+                    hiddenRunHashes={hiddenRuns}
+                  />
+                </div>
+                <aside className="space-y-3">
+                  <RunsPanel
+                    visibleRuns={visibleRuns}
+                    selectedVersionLabel={selectedVersion?.label}
+                    runFilter={runFilter}
+                    onRunFilterChange={setRunFilter}
+                    hiddenRuns={hiddenRuns}
+                    setHiddenRuns={setHiddenRuns}
+                    runColors={runColors}
+                    runMeta={runMeta}
+                    comparisonHashes={comparisonHashesSet}
+                    showSubmitterLines={showSubmitterLines}
+                    onAddRuns={() => setModalOpen(true)}
+                    onRemoveComparison={(hash) => {
+                      // Filter both states — the removed run could be in
+                      // either bucket. removedFromIncludes suppresses it
+                      // on next include-fetch so the seeded set doesn't
+                      // silently re-add it.
+                      setSeededComparison((prev) => prev.filter((c) => c.hash !== hash));
+                      setUserAddedComparison((prev) => prev.filter((c) => c.hash !== hash));
+                      setRemovedFromIncludes((prev) => new Set([...prev, hash]));
+                    }}
+                  />
+                </aside>
               </div>
-              <aside className="space-y-3">
-                <RunsPanel
-                  visibleRuns={visibleRuns}
-                  selectedVersionLabel={selectedVersion?.label}
-                  runFilter={runFilter}
-                  onRunFilterChange={setRunFilter}
-                  hiddenRuns={hiddenRuns}
-                  setHiddenRuns={setHiddenRuns}
-                  runColors={runColors}
-                  runMeta={runMeta}
-                  comparisonHashes={comparisonHashesSet}
-                  showSubmitterLines={showSubmitterLines}
-                  onAddRuns={() => setModalOpen(true)}
-                  onRemoveComparison={(hash) => {
-                    // Filter both states — the removed run could be in
-                    // either bucket. removedFromIncludes suppresses it
-                    // on next include-fetch so the seeded set doesn't
-                    // silently re-add it.
-                    setSeededComparison((prev) => prev.filter((c) => c.hash !== hash));
-                    setUserAddedComparison((prev) => prev.filter((c) => c.hash !== hash));
-                    setRemovedFromIncludes((prev) => new Set([...prev, hash]));
-                  }}
-                />
-              </aside>
-            </div>
-          </TabsContent>
+            </TabsContent>
+          )}
 
           {/* Same two-column layout as Training and Eval so the shared
               RunsPanel does not move between tabs, and hiding a run here
               hides it everywhere. Mounted lazily by Radix: samples are
               several requests per run and nobody should pay for them by
               opening the page on Training. */}
-          <TabsContent value="examples" className="mt-3">
-            <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-5">
-              <div className="min-w-0">
-                <SamplesTabLive allRuns={allRuns} hiddenRunHashes={hiddenRuns} />
+          {tabs.samples && (
+            <TabsContent value="samples" className="mt-3">
+              <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-5">
+                <div className="min-w-0">
+                  <SamplesTabLive allRuns={allRuns} hiddenRunHashes={hiddenRuns} />
+                </div>
+                <aside className="space-y-3">
+                  <RunsPanel
+                    visibleRuns={visibleRuns}
+                    selectedVersionLabel={selectedVersion?.label}
+                    runFilter={runFilter}
+                    onRunFilterChange={setRunFilter}
+                    hiddenRuns={hiddenRuns}
+                    setHiddenRuns={setHiddenRuns}
+                    runColors={runColors}
+                    runMeta={runMeta}
+                    comparisonHashes={comparisonHashesSet}
+                    showSubmitterLines={showSubmitterLines}
+                    onAddRuns={() => setModalOpen(true)}
+                    onRemoveComparison={(hash) => {
+                      setSeededComparison((prev) => prev.filter((c) => c.hash !== hash));
+                      setUserAddedComparison((prev) => prev.filter((c) => c.hash !== hash));
+                      setRemovedFromIncludes((prev) => new Set([...prev, hash]));
+                    }}
+                  />
+                </aside>
               </div>
-              <aside className="space-y-3">
-                <RunsPanel
-                  visibleRuns={visibleRuns}
-                  selectedVersionLabel={selectedVersion?.label}
-                  runFilter={runFilter}
-                  onRunFilterChange={setRunFilter}
-                  hiddenRuns={hiddenRuns}
-                  setHiddenRuns={setHiddenRuns}
-                  runColors={runColors}
-                  runMeta={runMeta}
-                  comparisonHashes={comparisonHashesSet}
-                  showSubmitterLines={showSubmitterLines}
-                  onAddRuns={() => setModalOpen(true)}
-                  onRemoveComparison={(hash) => {
-                    setSeededComparison((prev) => prev.filter((c) => c.hash !== hash));
-                    setUserAddedComparison((prev) => prev.filter((c) => c.hash !== hash));
-                    setRemovedFromIncludes((prev) => new Set([...prev, hash]));
-                  }}
-                />
-              </aside>
-            </div>
-          </TabsContent>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
 
