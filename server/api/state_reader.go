@@ -243,6 +243,27 @@ func (r *StateReader) GetState(experimentName string) (*ExperimentState, error) 
 	return s, nil
 }
 
+// CountVersions returns how many distinct versions an experiment has been
+// submitted under.
+//
+// The experiments list gets this by grouping every submit in the DB; one name
+// needs one query. DISTINCT is redundant against the current schema, which has
+// UNIQUE(experiment_name, version), and is kept so the count stays a version
+// count if that constraint is ever relaxed.
+func (r *StateReader) CountVersions(experimentName string) (int, error) {
+	if r == nil || r.db == nil {
+		return 0, nil
+	}
+	var n int
+	err := r.db.QueryRow(
+		`SELECT COUNT(DISTINCT version) FROM submits WHERE experiment_name = ?`,
+		experimentName).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count versions for %s: %w", experimentName, err)
+	}
+	return n, nil
+}
+
 // GetIncludes returns the include specs for a specific version of the
 // given experiment. When version is "" (or "latest"), returns the
 // include specs for the most recent submit — preserves the pre-fix

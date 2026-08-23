@@ -45,6 +45,24 @@ export interface Experiment {
   submitted_by?: string;
 }
 
+/** Shape of /api/experiments/{name} — one experiment's header metadata.
+ *
+ * Deliberately narrower than Experiment: no run_count, because the endpoint
+ * answers from the state DB alone and keeps working when Aim is down. */
+export interface ExperimentDetail {
+  name: string;
+  state: ExperimentState;
+  gpu_type: string;
+  started_at: string;
+  duration: string;
+  outcome: string;
+  repo?: string;
+  linear_doc_url?: string;
+  version_count: number;
+  state_history?: { state: ExperimentState; at: string }[];
+  submitted_by?: string;
+}
+
 export interface RunMetricRef {
   name: string;
   context?: string | null;

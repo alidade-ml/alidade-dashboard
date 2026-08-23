@@ -5,6 +5,7 @@ import type {
   CostResponse,
   EvalManifestEntry,
   Experiment,
+  ExperimentDetail,
   HealthResponse,
   IncludesResponse,
   MetricSeries,
@@ -74,6 +75,8 @@ async function withSeed<T>(
 export const api = {
   experiments: (signal?: AbortSignal) =>
     withSeed(() => getJSON<Experiment[]>("/experiments", signal), seedExperiments, signal),
+  experiment: (name: string, signal?: AbortSignal) =>
+    getJSON<ExperimentDetail>(`/experiments/${encodeURIComponent(name)}`, signal),
   runs: (experiment: string, signal?: AbortSignal) =>
     withSeed(
       () => getJSON<Run[]>(`/experiments/${encodeURIComponent(experiment)}/runs`, signal),

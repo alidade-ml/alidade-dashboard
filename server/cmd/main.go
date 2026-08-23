@@ -113,7 +113,7 @@ func main() {
 		case strings.HasSuffix(path, "/runs"):
 			cachedExperimentRuns(w, r)
 		default:
-			http.NotFound(w, r)
+			handler.HandleExperimentDetail(w, r)
 		}
 	})
 	mux.HandleFunc("/api/config/colors", handler.HandleColors)

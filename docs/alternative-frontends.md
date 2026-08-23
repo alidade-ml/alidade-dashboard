@@ -29,6 +29,7 @@ The simplest path. The Go server runs on the NUC at `http://<nuc>:43801` and exp
 | Method | Path                               | Returns                                                                                                   |
 | ------ | ---------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `GET`  | `/api/experiments`                 | List of all experiments with state, GPU type, run count, version count, submitter                         |
+| `GET`  | `/api/experiments/{name}`          | One experiment's header metadata: state, timing, submitter, version count, state history. Answers from the state DB alone, so it works when Aim is unreachable |
 | `GET`  | `/api/experiments/{name}/runs`     | Detailed runs for one experiment (metrics list + final loss)                                              |
 | `GET`  | `/api/experiments/{name}/includes` | Resolved `--include` directives for an experiment                                                         |
 | `GET`  | `/api/runs`                        | Flat list of runs across all experiments, newest first. Excludes eval and metadata runs; includes samples — read `kind` and filter if that split is wrong for you |
