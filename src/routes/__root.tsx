@@ -1,6 +1,7 @@
 import { Outlet, Link, createRootRoute } from "@tanstack/react-router";
 
 import { ThemeProvider } from "@/hooks/theme-provider";
+import { PaletteProvider } from "@/hooks/palette-provider";
 
 function NotFoundComponent() {
   return (
@@ -36,7 +37,9 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <ThemeProvider>
-      <Outlet />
+      <PaletteProvider>
+        <Outlet />
+      </PaletteProvider>
     </ThemeProvider>
   );
 }

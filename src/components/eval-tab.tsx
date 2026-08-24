@@ -431,7 +431,7 @@ function EvalTableBlock({
                     <div className="flex items-center gap-2">
                       <span
                         className="h-2 w-2 rounded-sm shrink-0 ring-1 ring-border-strong"
-                        style={{ backgroundColor: runColors[r.hash] ?? "#888" }}
+                        style={{ backgroundColor: runColors[r.hash] ?? "var(--muted-foreground)" }}
                       />
                       {isCurrent && (
                         <span
@@ -552,7 +552,9 @@ function EvalTraceBlock({
                   <li key={line.runHash} className="flex items-center gap-1.5">
                     <span
                       className="h-2 w-2 rounded-sm"
-                      style={{ backgroundColor: runColors[line.runHash] ?? "#888" }}
+                      style={{
+                        backgroundColor: runColors[line.runHash] ?? "var(--muted-foreground)",
+                      }}
                     />
                     <span className={cn(isCurrent ? "text-foreground" : "text-muted-foreground")}>
                       {run.name}
@@ -669,7 +671,7 @@ function EvalTraceChart({
                 key={line.runHash}
                 type="monotone"
                 dataKey={line.runHash}
-                stroke={runColors[line.runHash] ?? "#888"}
+                stroke={runColors[line.runHash] ?? "var(--muted-foreground)"}
                 strokeWidth={isCurrent ? 2.4 : 1.4}
                 strokeOpacity={isCurrent ? 1 : 0.65}
                 dot={{ r: 2.5 }}

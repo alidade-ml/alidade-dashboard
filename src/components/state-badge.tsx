@@ -2,14 +2,18 @@ import { cn } from "@/lib/utils";
 import { stateTone, outcomeTone } from "@/lib/format";
 import type { ExperimentState, ExperimentOutcome } from "@/lib/types";
 
+// The hue carries the chip and the ring; the text is ink. As 10px text these
+// tones fail AA in seven of eight preset-mode combinations, which is the brand
+// holding its own line — the accent is never body text. Ink on the chip
+// measures 7.8:1 or better everywhere.
 const TONE_CLASS: Record<"success" | "destructive" | "warning" | "info" | "muted", string> = {
   success:
-    "text-[var(--success)] bg-[color-mix(in_oklab,var(--success)_15%,transparent)] ring-[color-mix(in_oklab,var(--success)_30%,transparent)]",
+    "text-foreground bg-[color-mix(in_oklab,var(--success)_15%,transparent)] ring-[color-mix(in_oklab,var(--success)_45%,transparent)]",
   destructive:
-    "text-[var(--destructive)] bg-[color-mix(in_oklab,var(--destructive)_15%,transparent)] ring-[color-mix(in_oklab,var(--destructive)_30%,transparent)]",
+    "text-foreground bg-[color-mix(in_oklab,var(--destructive)_15%,transparent)] ring-[color-mix(in_oklab,var(--destructive)_45%,transparent)]",
   warning:
-    "text-[var(--warning)] bg-[color-mix(in_oklab,var(--warning)_15%,transparent)] ring-[color-mix(in_oklab,var(--warning)_30%,transparent)]",
-  info: "text-[var(--info)] bg-[color-mix(in_oklab,var(--info)_15%,transparent)] ring-[color-mix(in_oklab,var(--info)_30%,transparent)]",
+    "text-foreground bg-[color-mix(in_oklab,var(--warning)_15%,transparent)] ring-[color-mix(in_oklab,var(--warning)_45%,transparent)]",
+  info: "text-foreground bg-[color-mix(in_oklab,var(--info)_15%,transparent)] ring-[color-mix(in_oklab,var(--info)_45%,transparent)]",
   muted: "text-muted-foreground bg-muted ring-border",
 };
 

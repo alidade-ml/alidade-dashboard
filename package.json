@@ -13,6 +13,10 @@
     "test": "node --test --experimental-strip-types src/lib/*.test.ts"
   },
   "dependencies": {
+    "@fontsource/cabin": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/ysabeau": "^5.3.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",

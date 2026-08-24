@@ -3,9 +3,10 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { ArrowLeft, ChevronDown, ExternalLink } from "lucide-react";
 
-import { api, DEFAULT_PALETTE } from "@/lib/api";
+import { api } from "@/lib/api";
 import { isTrainingRun } from "@/lib/types";
 import type { Experiment, MetricSeries, Run } from "@/lib/types";
+import { useChartPalette } from "@/hooks/use-chart-palette";
 import { usePolling } from "@/hooks/use-polling";
 import { formatRelative, formatTimestamp, isActiveState } from "@/lib/format";
 import { CopyableHash } from "@/components/copyable-hash";
@@ -166,20 +167,7 @@ function ExperimentBody({
     selectedVersion?.label ?? (submitVersionCount > 0 ? `v${submitVersionCount}` : undefined);
   const totalVersions = Math.max(versions.length, submitVersionCount);
 
-  // Color palette from API (with fallback)
-  const [palette, setPalette] = useState<string[]>(DEFAULT_PALETTE);
-  useEffect(() => {
-    const ctrl = new AbortController();
-    api
-      .colors(ctrl.signal)
-      .then((c) => {
-        if (c.palette && c.palette.length > 0) setPalette(c.palette);
-      })
-      .catch(() => {
-        /* keep default */
-      });
-    return () => ctrl.abort();
-  }, []);
+  const palette = useChartPalette();
 
   // Comparison runs are the union of two independent sources:
   //
@@ -413,7 +401,7 @@ function ExperimentBody({
         hash: r.hash,
         name: r.name,
         experiment: r.experiment,
-        color: runColors[r.hash] ?? "#888",
+        color: runColors[r.hash] ?? "var(--muted-foreground)",
         active: runMeta[r.hash]?.active ?? false,
         visible: !hiddenRuns.has(r.hash),
       }));
@@ -1136,7 +1124,7 @@ function RunStatsTable({
                     <div className="flex items-center gap-1.5">
                       <span
                         className="h-1.5 w-1.5 rounded-sm shrink-0"
-                        style={{ backgroundColor: runColors[r.hash] ?? "#888" }}
+                        style={{ backgroundColor: runColors[r.hash] ?? "var(--muted-foreground)" }}
                       />
                       <span className="text-foreground truncate">{r.name}</span>
                       {showSubmitterLines && r.submitted_by && (
@@ -1200,7 +1188,9 @@ function RunStatsTable({
                         <div className="flex items-center gap-1.5">
                           <span
                             className="h-1.5 w-1.5 rounded-sm shrink-0"
-                            style={{ backgroundColor: runColors[r.hash] ?? "#888" }}
+                            style={{
+                              backgroundColor: runColors[r.hash] ?? "var(--muted-foreground)",
+                            }}
                           />
                           <span className="text-foreground truncate">{r.name}</span>
                           {showSubmitterLines && r.submitted_by && (

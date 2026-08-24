@@ -12,6 +12,7 @@ import type {
   Run,
 } from "./types";
 import { formatDuration } from "./format.ts";
+import { tracePalette } from "./trace-palette.ts";
 
 // Live Lambda rates pulled 2026-05-28 from /instance-types. Cents per hour.
 // Update via the snippet in plans/cost-tracking.md when Lambda revises pricing.
@@ -618,18 +619,5 @@ export function seedCost(params?: {
 }
 
 export function seedColors(): ColorsResponse {
-  return {
-    palette: [
-      "#4E79A7",
-      "#F28E2B",
-      "#59A14F",
-      "#E15759",
-      "#B07AA1",
-      "#76B7B2",
-      "#EDC948",
-      "#FF9DA7",
-      "#9C755F",
-      "#BAB0AC",
-    ],
-  };
+  return { palette: tracePalette() };
 }

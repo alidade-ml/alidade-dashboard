@@ -12,6 +12,7 @@ import type {
   Run,
   RunInfo,
 } from "./types";
+import { tracePalette } from "./trace-palette.ts";
 import {
   seedColors,
   seedCost,
@@ -180,22 +181,8 @@ export const api = {
     ),
 };
 
-// Default Astrolabe palette — used when /api/config/colors is unavailable
-// (also doubles as a deterministic local fallback for offline previews).
-export const DEFAULT_PALETTE = [
-  "#4E79A7",
-  "#F28E2B",
-  "#59A14F",
-  "#E15759",
-  "#B07AA1",
-  "#76B7B2",
-  "#EDC948",
-  "#FF9DA7",
-  "#9C755F",
-  "#BAB0AC",
-  "#86BCB6",
-  "#D37295",
-  "#A0CBE8",
-  "#FFBE7D",
-  "#8CD17D",
-];
+// Categorical trace colours, used when /api/config/colors is unavailable (and
+// as a deterministic fallback for offline previews). Distinct from the brand
+// palettes in palette-recipe.ts: these encode which run a line belongs to, and
+// must stay mutually distinguishable rather than harmonious.
+export const DEFAULT_CHART_PALETTE = tracePalette();

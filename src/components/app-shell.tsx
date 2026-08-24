@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
-import { Moon, Sun, Telescope } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
+import { BrandMark, Wordmark } from "@/components/brand-mark";
+import { PalettePicker } from "@/components/palette-picker";
 
 interface Props {
   children: React.ReactNode;
@@ -14,15 +16,12 @@ export function AppShell({ children, rightSlot }: Props) {
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
         <div className="mx-auto flex h-12 w-full max-w-[1600px] items-center gap-4 px-6">
-          {/* The Astrolabe logo doubles as the home link — separate "Home"
-              nav item and the redundant "experiments" tag were both
-              removed; the title alone carries enough weight. */}
-          <Link
-            to="/"
-            className="flex items-center gap-2 text-sm font-semibold tracking-tight hover:text-foreground"
-          >
-            <Telescope className="h-4 w-4 text-primary" strokeWidth={2.25} />
-            <span>Astrolabe</span>
+          {/* The logo doubles as the home link — a separate "Home" nav item and
+              the redundant "experiments" tag were both removed; the title alone
+              carries enough weight. */}
+          <Link to="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
+            <BrandMark />
+            <Wordmark className="text-[15px] leading-none" />
           </Link>
           {/* No top-nav links. The cost / spend page is reachable via the
               clickable Spend KPI card on the home page (and direct URL).
@@ -30,6 +29,7 @@ export function AppShell({ children, rightSlot }: Props) {
               link competing for attention. */}
           <div className="ml-auto flex items-center gap-2">
             {rightSlot}
+            <PalettePicker />
             <button
               type="button"
               onClick={toggle}
