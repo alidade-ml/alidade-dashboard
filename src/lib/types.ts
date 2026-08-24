@@ -17,7 +17,9 @@ export interface Experiment {
   state: ExperimentState;
   gpu_type: string;
   started_at: string | null;
-  duration: number; // seconds
+  /** Pre-formatted by the Go API (e.g. "4h 12m"), like ExperimentDetail and Run.
+      Was declared as seconds, which nothing ever sent. */
+  duration: string;
   outcome: ExperimentOutcome;
   /** Total number of runs across every version (versions × runs-per-version). */
   run_count: number;

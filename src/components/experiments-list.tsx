@@ -14,14 +14,7 @@ import { api } from "@/lib/api";
 import type { Experiment, ExperimentState, Run } from "@/lib/types";
 import type { SearchParams } from "@/routes/index";
 import { usePolling } from "@/hooks/use-polling";
-import {
-  formatDuration,
-  formatRelative,
-  formatTimestamp,
-  inferRepo,
-  isActiveState,
-  shortHash,
-} from "@/lib/format";
+import { formatRelative, formatTimestamp, inferRepo, isActiveState, shortHash } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PAGE_SIZE, pageWindow, pageSlice } from "@/lib/paging";
 
@@ -794,7 +787,7 @@ function ExperimentRow({
           {formatRelative(experiment.started_at)}
         </span>
         <span className="text-xs text-foreground font-mono text-tabular">
-          {formatDuration(experiment.duration)}
+          {experiment.duration || "—"}
         </span>
         <span className="text-right">
           <VersionBadge
