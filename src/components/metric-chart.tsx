@@ -11,6 +11,7 @@ import {
 } from "recharts";
 
 import { api } from "@/lib/api";
+import { mergeSeriesPoints, type SeriesPoint } from "@/lib/metric-series";
 import type { MetricSeries } from "@/lib/types";
 import { useChartZoom, type XAxisMode } from "@/hooks/use-chart-zoom";
 import { cn } from "@/lib/utils";
@@ -30,12 +31,6 @@ interface MetricChartProps {
   metricName: string;
   runs: ChartRunSpec[];
   xMode: XAxisMode;
-}
-
-interface SeriesPoint {
-  x: number; // step or epoch ms
-  // run-hash-keyed values
-  [runHash: string]: number | undefined;
 }
 
 /**
@@ -107,29 +102,17 @@ export function MetricChart({ metricName, runs, xMode }: MetricChartProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runKey, metricName]);
 
-  // Merge series into a single dataset keyed by x.
-  const data = useMemo<SeriesPoint[]>(() => {
-    const map = new Map<number, SeriesPoint>();
-    for (const run of runs) {
-      const series = seriesByRun[run.hash];
-      if (!series) continue;
-      for (let i = 0; i < series.steps.length; i++) {
-        const step = series.steps[i];
-        const value = series.values[i];
-        if (value == null || !isFinite(value)) continue;
-        // wall_times from the callback are seconds-elapsed-since-run-start
-        // (NOT epoch timestamps). Display as elapsed time. When missing,
-        // fall back to step number — a researcher seeing "step 50" instead
-        // of "5m" is at least not wrong.
-        const wall = series.wall_times?.[i] != null ? series.wall_times[i] : step;
-        const x = xMode === "step" ? step : wall;
-        const existing = map.get(x) ?? { x };
-        existing[run.hash] = value;
-        map.set(x, existing);
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => a.x - b.x);
-  }, [seriesByRun, runs, xMode]);
+  // Merge series into a single dataset keyed by x. See mergeSeriesPoints for
+  // the axis rules; wall_times are seconds elapsed since run start, not epoch.
+  const data = useMemo<SeriesPoint[]>(
+    () =>
+      mergeSeriesPoints(
+        runs.map((r) => r.hash),
+        seriesByRun,
+        xMode,
+      ),
+    [seriesByRun, runs, xMode],
+  );
 
   // Drag-to-zoom state — we track refAreaLeft / refAreaRight on the X axis.
   const [refLeft, setRefLeft] = useState<number | null>(null);
