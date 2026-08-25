@@ -167,11 +167,15 @@ type MetricResponse struct {
 	Name   string    `json:"name"`
 	Steps  []int     `json:"steps"`
 	Values []float64 `json:"values"`
-	// WallTimes — elapsed seconds since run start at each step. Populated
-	// when the run's wall_time metric is available (the AstrolabeLogger
-	// callback writes it). Omitted when missing — frontend falls back
-	// to step number for the wall-time x-axis.
-	WallTimes []float64 `json:"wall_times,omitempty"`
+	// WallTimes — elapsed seconds since run start at each step, index-aligned
+	// with Steps. Populated when the run's wall_time metric is available (the
+	// AstrolabeLogger callback writes it). Omitted entirely when missing —
+	// frontend falls back to step number for the wall-time x-axis.
+	//
+	// A step the wall_time series does not cover is null, never 0: zero is a
+	// legitimate elapsed reading at the first step, so a sentinel is
+	// indistinguishable from a measurement and gets plotted at the origin.
+	WallTimes []*float64 `json:"wall_times,omitempty"`
 }
 
 type MetricNameResponse struct {
@@ -849,11 +853,12 @@ func (h *Handler) HandleMetricData(w http.ResponseWriter, r *http.Request) {
 			for i, step := range wt.Iters {
 				byStep[step] = wt.Values[i]
 			}
-			times := make([]float64, len(data.Iters))
+			times := make([]*float64, len(data.Iters))
 			anyMatched := false
 			for i, step := range data.Iters {
 				if v, ok := byStep[step]; ok {
-					times[i] = v
+					paired := v
+					times[i] = &paired
 					anyMatched = true
 				}
 			}

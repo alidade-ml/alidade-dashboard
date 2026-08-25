@@ -155,8 +155,9 @@ export interface MetricSeries {
   name: string;
   steps: number[];
   values: number[];
-  // Optional wall-time stamps if backend provides them
-  wall_times?: number[];
+  /** Elapsed seconds at each step, index-aligned with `steps`. Absent when the
+   *  run logged no wall_time at all; null at a step the series does not cover. */
+  wall_times?: (number | null)[];
 }
 
 /** One row in the eval-discovery manifest — one eval Aim run per
