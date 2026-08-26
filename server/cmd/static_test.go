@@ -83,3 +83,43 @@ func TestDeepLinkReachesTheSpa(t *testing.T) {
 		t.Fatalf("deep link got %d %q", rec.Code, rec.Body.String())
 	}
 }
+
+// An unregistered /api/ path is a 404, not the SPA shell.
+//
+// Only the exact prefixes on the mux are handled elsewhere; anything else
+// under /api/ reaches the fallback. Serving it index.html hands a scripted
+// consumer a 200 and an HTML body to fail JSON-parsing on, which reads as a
+// malformed response rather than a missing endpoint.
+func TestUnknownApiPathIsNotFoundRatherThanTheSpa(t *testing.T) {
+	_, h := staticFixture(t)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/metrics", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown API path returned %d, want 404", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("unknown API path served as %q, want application/json", ct)
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte("<!doctype")) {
+		t.Fatal("unknown API path came back as the SPA shell")
+	}
+}
+
+// A SPA deep link must still reach index.html. This is the regression the
+// 404 branch could plausibly cause: a path filter that is too broad takes
+// client-side routing down with it.
+func TestSpaDeepLinkStillReachesTheShellAfterTheApiGuard(t *testing.T) {
+	_, h := staticFixture(t)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/experiment", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("SPA deep link returned %d, want 200", rec.Code)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("<!doctype")) {
+		t.Fatal("SPA deep link did not receive the shell")
+	}
+}
