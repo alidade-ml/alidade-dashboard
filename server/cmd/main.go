@@ -152,10 +152,17 @@ func main() {
 // in the dist.
 func spaFallback(staticDir string, fileServer http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// API routes are registered separately and never hit this
-		// handler. Anything that does is either a static asset or a
-		// SPA route.
 		path := r.URL.Path
+		// Only the exact prefixes registered on the mux are handled
+		// elsewhere. An unmatched /api/ path lands here, and serving it
+		// the SPA's index.html gives a scripted consumer a 200 and an
+		// HTML body to fail JSON-parsing on, rather than a 404.
+		if strings.HasPrefix(path, "/api/") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"no such endpoint"}` + "\n"))
+			return
+		}
 		if path == "/" {
 			fileServer.ServeHTTP(w, r)
 			return

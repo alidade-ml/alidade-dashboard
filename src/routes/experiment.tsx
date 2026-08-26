@@ -519,6 +519,10 @@ function ExperimentBody({
                   ← jump to latest
                 </button>
               )}
+              {/* Linear doc link, hidden pending a decision on the fallback:
+                  with no linear_doc_url recorded it opens a Linear search,
+                  which looks like a link to the writeup and is not one.
+                  Restore by removing this wrapper.
               <a
                 href={experiment?.linear_doc_url || linearSearchFallback(experimentName)}
                 target="_blank"
@@ -533,6 +537,7 @@ function ExperimentBody({
                 Linear doc
                 <ExternalLink className="h-3 w-3" />
               </a>
+              */}
             </div>
             <div className="mt-1.5 flex items-center gap-4 text-xs text-muted-foreground font-mono">
               <span className="text-tabular">elapsed {elapsed}</span>
