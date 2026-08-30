@@ -15,8 +15,7 @@ package api
 // Aim publishes no compatibility guarantee, so testdata/ holds real
 // captured response bodies and the tests decode those. That pins this
 // decoder against its own regressions. It cannot tell us Aim moved —
-// only a contract test against a live server can, and that is
-// EXAMPLES-1.05.
+// only a contract test against a live server can, and there is not one.
 
 import (
 	"encoding/binary"

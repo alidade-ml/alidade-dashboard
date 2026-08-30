@@ -2,8 +2,8 @@ package api
 
 // Tests for HandleRunSamples — sample-batch discovery.
 //
-// Contract being verified, taken from EXAMPLES-1's ticket and the
-// producer's docs rather than from the implementation:
+// Contract being verified, taken from the producer's docs rather than
+// from the implementation:
 //
 //   * Returns the sample Aim runs logged against a model run, keyed by
 //     astrolabe.kind == "sample" AND astrolabe.model_run_hash == <hash>.
@@ -321,16 +321,16 @@ func TestSamplesReturnsSetsNewestFirst(t *testing.T) {
 
 // --- what scoping to the run's experiment changes ---
 //
-// These pin the two behaviours EXAMPLES-1.01b deliberately alters, so a
-// later reader can tell a decision from a regression.
+// These pin two behaviours that were deliberately changed, so a later
+// reader can tell a decision from a regression.
 
 func TestSamplesInAnotherExperimentAreReturned(t *testing.T) {
-	// INVERTED by RUNSET-1.03, deliberately.
+	// Deliberately inverted since this test was first written.
 	//
-	// EXAMPLES-1.01b narrowed discovery to the model run's own
-	// experiment, because the only alternative then was a project-wide
-	// walk. It recorded the cost as a known gap: a batch logged with no
-	// submit in scope files under "sample/<set>" and became invisible.
+	// Discovery was once narrowed to the model run's own experiment,
+	// because the only alternative then was a project-wide walk. The
+	// recorded cost was a known gap: a batch logged with no submit in
+	// scope files under "sample/<set>" and became invisible.
 	//
 	// Asking Aim by tag has no reason to care which experiment a batch is
 	// in, so the gap closes and this assertion flips. The old version of
@@ -415,7 +415,7 @@ func TestSamplesDoNotWalkOtherExperiments(t *testing.T) {
 
 // --- HandleSampleBatch: payloads, read from Aim ---
 //
-// Contract from EXAMPLES-1.02b:
+// Contract:
 //   * The two sequences are joined by STEP, never by position — they
 //     need not share a step set.
 //   * Absent and empty are different: a set logged without inputs has no
@@ -562,7 +562,7 @@ func TestBatchWithNoSequencesIsEmptyNotNull(t *testing.T) {
 	}
 }
 
-// --- images: metadata, then blobs (EXAMPLES-1.03) ---
+// --- images: metadata, then blobs ---
 //
 // Contract:
 //   * The image sequence carries metadata and an opaque blob_uri. Pixels
@@ -1056,9 +1056,9 @@ func TestDiscoveryRechecksTagsWhenAimAnswersTooBroadly(t *testing.T) {
 }
 
 func TestSampleRunsAreNotRowsInTheExperimentRunList(t *testing.T) {
-	// RUNKIND-1. HandleExperimentRuns already excludes eval and metadata
-	// runs — "not a row itself" — and sample was simply never added to
-	// that switch. The visible effect was an experiment showing three
+	// HandleExperimentRuns already excludes eval and metadata runs —
+	// "not a row itself" — and sample was simply never added to that
+	// switch. The visible effect was an experiment showing three
 	// rows, all displaying the experiment's name, for one model.
 	//
 	// Their real Aim names are empty; the API's display fallback paints

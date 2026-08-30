@@ -84,9 +84,9 @@ func TestAimContractTextSequenceStillDecodes(t *testing.T) {
 
 // TestAimContractImagesStillTakeTwoHops pins the resolve_blobs=False shape.
 //
-// If a future Aim resolves image blobs inline, EXAMPLES-1.03's second hop
-// becomes dead code and the pixels arrive somewhere this package does not
-// look. Either way the tab breaks quietly.
+// If a future Aim resolves image blobs inline, the second hop this
+// package makes for image blobs becomes dead code and the pixels arrive
+// somewhere it does not look. Either way the tab breaks quietly.
 func TestAimContractImagesStillTakeTwoHops(t *testing.T) {
 	client := requireLiveAim(t)
 	hash := writeImageRunViaSDK(t)
