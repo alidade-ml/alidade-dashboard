@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	neturl "net/url"
 	"sort"
@@ -915,6 +916,20 @@ func (h *Handler) HandleRunEvals(w http.ResponseWriter, r *http.Request) {
 	modelRunHash := extractPathParam(r.URL.Path, "/api/runs/", "/evals")
 	if modelRunHash == "" {
 		http.Error(w, "missing run hash", http.StatusBadRequest)
+		return
+	}
+
+	// Confirm the run exists before answering about it. The query below
+	// cannot tell "this model has no evals" from "this hash is not a run
+	// at all", and an empty list for a typo is a plausible and wrong
+	// answer — a truncated hash read as a missing eval is how this was
+	// found. Same guard the samples endpoint already applies.
+	if _, err := h.aim.GetRunInfo(modelRunHash); err != nil {
+		if errors.Is(err, ErrRunNotFound) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 
