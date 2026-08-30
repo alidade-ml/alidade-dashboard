@@ -26,9 +26,9 @@ import (
 )
 
 // Contract literals. These are copied from astrolabe's contract.py and
-// checked by nothing today — see EXAMPLES-1.05. A rename engine-side
-// makes this endpoint return an empty list, which is indistinguishable
-// from "nobody logged any samples".
+// checked by nothing today. A rename engine-side makes this endpoint
+// return an empty list, which is indistinguishable from "nobody logged
+// any samples".
 const (
 	// SampleKind is astrolabe.kind on a run written by log_samples.
 	SampleKind = "sample"
@@ -71,10 +71,9 @@ type SampleManifestEntry struct {
 // that property, so this was project-wide work to find something next
 // door.
 //
-// The trade is recorded in EXAMPLES-1.01b: a batch logged with no
-// submit in scope lands under "sample/<set>" and is not found here.
-// That is a known gap belonging to the producer, not a reason to
-// restore the scan.
+// Known gap, accepted: a batch logged with no submit in scope lands
+// under "sample/<set>" and is not found here. That belongs to the
+// producer, and is not a reason to restore the scan.
 func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 	modelRunHash := extractPathParam(r.URL.Path, "/api/runs/", "/samples")
 	if modelRunHash == "" {
@@ -84,9 +83,9 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 
 	// Confirm the run exists before answering about it. The query below
 	// cannot tell "this hash has no sample batches" from "this hash is
-	// not a run at all", and returning [] for a typo is exactly the
-	// ambiguity EXAMPLES-1.01b removed. One extra request, and the same
-	// one the hash-shaped include path already makes.
+	// not a run at all", and returning [] for a typo is the ambiguity
+	// this removes. One extra request, and the same one the hash-shaped
+	// include path already makes.
 	if _, err := h.aim.GetRunInfo(modelRunHash); err != nil {
 		if errors.Is(err, ErrRunNotFound) {
 			http.Error(w, "run not found", http.StatusNotFound)
@@ -96,13 +95,11 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// One query. Cross-experiment on purpose, and that is a change from
-	// EXAMPLES-1.01b: that slice narrowed discovery to the model run's
-	// own experiment because a project-wide walk was the only
-	// alternative, and it recorded the resulting gap — a batch logged
-	// with no submit in scope files under "sample/<set>" and became
-	// invisible. Asking by tag has no reason to care which experiment a
-	// batch is in, so the gap closes.
+	// One query, cross-experiment on purpose. Discovery was once
+	// narrowed to the model run's own experiment, because a project-wide
+	// walk was the only alternative — which made a batch logged with no
+	// submit in scope invisible. Asking by tag has no reason to care
+	// which experiment a batch is in, so that gap closes.
 	runs, err := h.aim.SearchRuns(QueryByTags(map[string]string{
 		TagKind:         SampleKind,
 		TagModelRunHash: modelRunHash,
@@ -213,7 +210,7 @@ var sampleHashPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // step set: an absent input is unconditional generation, and a
 // partially drained buffer can leave one shorter.
 //
-// Text only. Images are EXAMPLES-1.03; this refuses them rather than
+// Text only. Images are not served yet; this refuses them rather than
 // half-rendering a batch whose payloads it cannot serve.
 func (h *Handler) HandleSampleBatch(w http.ResponseWriter, r *http.Request) {
 	aimRunHash := extractPathParam(r.URL.Path, "/api/samples/", "")

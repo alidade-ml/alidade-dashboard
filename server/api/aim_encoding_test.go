@@ -14,7 +14,7 @@ package api
 // What these CAN catch: a regression in our decoder.
 // What they CANNOT catch: Aim changing its encoding. The format carries
 // no version. Only a contract test against a live server closes that,
-// and it is EXAMPLES-1.05.
+// and there is not one.
 
 import (
 	"encoding/binary"
