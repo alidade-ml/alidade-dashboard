@@ -47,6 +47,23 @@ func makeEvalFakeRun(hash, taskSet, modelRunHash string, createdAt time.Time) fa
 	}
 }
 
+// withModelRun prepends the training run the eval manifest is being asked
+// about. The endpoint verifies the model exists before answering, so a
+// fixture that declares only eval runs is describing an Aim where the
+// model was never written — which 404s, correctly.
+//
+// Every test in this file asks about "model-1"; before the existence
+// guard, none of them had to say it existed.
+func withModelRun(runs []fakeRun) []fakeRun {
+	model := fakeRun{
+		experiment:   "training",
+		hash:         "model-1",
+		creationTime: unixSecs(time.Date(2026, 5, 30, 11, 0, 0, 0, time.UTC)),
+		tags:         map[string]any{"astrolabe.kind": "training"},
+	}
+	return append([]fakeRun{model}, runs...)
+}
+
 func callEvals(t *testing.T, h *Handler, modelRunHash string) []EvalManifestEntry {
 	t.Helper()
 	url := "/api/runs/" + modelRunHash + "/evals"
@@ -66,7 +83,7 @@ func callEvals(t *testing.T, h *Handler, modelRunHash string) []EvalManifestEntr
 // --- Empty/edge cases ---
 
 func TestHandleRunEvalsNoEvals(t *testing.T) {
-	aim := fakeAim(t, nil)
+	aim := fakeAim(t, withModelRun(nil))
 	h := makeHandlerWithAim(t, aim)
 	got := callEvals(t, h, "model-1")
 	if len(got) != 0 {
@@ -75,7 +92,7 @@ func TestHandleRunEvalsNoEvals(t *testing.T) {
 }
 
 func TestHandleRunEvalsMissingHashReturns400(t *testing.T) {
-	aim := fakeAim(t, nil)
+	aim := fakeAim(t, withModelRun(nil))
 	h := makeHandlerWithAim(t, aim)
 	// URL with /api/runs//evals — empty path segment — must 400.
 	req := httptest.NewRequest("GET", "/api/runs//evals", nil)
@@ -94,7 +111,7 @@ func TestHandleRunEvalsFiltersByModelRunHash(t *testing.T) {
 		makeEvalFakeRun("e1", "glue", "model-1", t0),
 		makeEvalFakeRun("e2", "glue", "model-2", t0),
 	}
-	aim := fakeAim(t, runs)
+	aim := fakeAim(t, withModelRun(runs))
 	h := makeHandlerWithAim(t, aim)
 
 	got := callEvals(t, h, "model-1")
@@ -133,7 +150,7 @@ func TestHandleRunEvalsSkipsNonEvalKind(t *testing.T) {
 		},
 		makeEvalFakeRun("eval-run", "glue", "model-1", t0),
 	}
-	aim := fakeAim(t, runs)
+	aim := fakeAim(t, withModelRun(runs))
 	h := makeHandlerWithAim(t, aim)
 
 	got := callEvals(t, h, "model-1")
@@ -161,7 +178,7 @@ func TestHandleRunEvalsSkipsEmptyTaskSet(t *testing.T) {
 			},
 		},
 	}
-	aim := fakeAim(t, runs)
+	aim := fakeAim(t, withModelRun(runs))
 	h := makeHandlerWithAim(t, aim)
 
 	got := callEvals(t, h, "model-1")
@@ -190,7 +207,7 @@ func TestHandleRunEvalsFindsEvalRunsRegardlessOfExperimentFiling(t *testing.T) {
 			},
 		},
 	}
-	aim := fakeAim(t, runs)
+	aim := fakeAim(t, withModelRun(runs))
 	h := makeHandlerWithAim(t, aim)
 
 	got := callEvals(t, h, "model-1")
@@ -215,7 +232,7 @@ func TestHandleRunEvalsDedupsByTaskSetKeepingNewest(t *testing.T) {
 		makeEvalFakeRun("eval-old", "glue", "model-1", older),
 		makeEvalFakeRun("eval-new", "glue", "model-1", newer),
 	}
-	aim := fakeAim(t, runs)
+	aim := fakeAim(t, withModelRun(runs))
 	h := makeHandlerWithAim(t, aim)
 
 	got := callEvals(t, h, "model-1")
@@ -233,7 +250,7 @@ func TestHandleRunEvalsMultipleTaskSets(t *testing.T) {
 		makeEvalFakeRun("e-glue", "glue", "model-1", t0),
 		makeEvalFakeRun("e-mmlu", "mmlu", "model-1", t0.Add(time.Hour)),
 	}
-	aim := fakeAim(t, runs)
+	aim := fakeAim(t, withModelRun(runs))
 	h := makeHandlerWithAim(t, aim)
 
 	got := callEvals(t, h, "model-1")
@@ -255,7 +272,7 @@ func TestHandleRunEvalsOrdersNewestFirst(t *testing.T) {
 		makeEvalFakeRun("e-old", "mmlu", "model-1", t0),
 		makeEvalFakeRun("e-new", "glue", "model-1", t0.Add(2*time.Hour)),
 	}
-	aim := fakeAim(t, runs)
+	aim := fakeAim(t, withModelRun(runs))
 	h := makeHandlerWithAim(t, aim)
 
 	got := callEvals(t, h, "model-1")
@@ -275,7 +292,7 @@ func TestHandleRunEvalsTaskSetBreaksTimeTies(t *testing.T) {
 		makeEvalFakeRun("e-mmlu", "mmlu", "model-1", t0),
 		makeEvalFakeRun("e-glue", "glue", "model-1", t0),
 	}
-	aim := fakeAim(t, runs)
+	aim := fakeAim(t, withModelRun(runs))
 	h := makeHandlerWithAim(t, aim)
 
 	got := callEvals(t, h, "model-1")
@@ -299,7 +316,7 @@ func TestHandleRunEvalsHappyPath(t *testing.T) {
 		// Different model — should NOT surface.
 		makeEvalFakeRun("e4", "glue", "model-2", t0.Add(time.Hour)),
 	}
-	aim := fakeAim(t, runs)
+	aim := fakeAim(t, withModelRun(runs))
 	h := makeHandlerWithAim(t, aim)
 
 	got := callEvals(t, h, "model-1")
@@ -326,10 +343,10 @@ func TestHandleRunEvalsFiltersByModelAcrossDifferentTaskSets(t *testing.T) {
 	//
 	// Different task sets, so a leak shows up as an extra entry.
 	t0 := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
-	h := makeHandlerWithAim(t, fakeAim(t, []fakeRun{
+	h := makeHandlerWithAim(t, fakeAim(t, withModelRun([]fakeRun{
 		makeEvalFakeRun("e1", "glue", "model-1", t0),
 		makeEvalFakeRun("e2", "squad", "model-2", t0),
-	}))
+	})))
 
 	got := callEvals(t, h, "model-1")
 	if len(got) != 1 {
@@ -337,5 +354,44 @@ func TestHandleRunEvalsFiltersByModelAcrossDifferentTaskSets(t *testing.T) {
 	}
 	if got[0].TaskSet != "glue" {
 		t.Errorf("another model's eval leaked in: %+v", got)
+	}
+}
+
+// --- Existence of the model being asked about ---
+
+// A hash Aim does not know must 404, not answer 200 with an empty list.
+//
+// An empty list reads as "this model has no evals", which is a plausible
+// and wrong answer: a hash truncated in transcription was read exactly
+// that way, and the eval was reported missing when it had landed fine.
+// The samples endpoint has always drawn this distinction.
+func TestHandleRunEvalsUnknownModelReturns404(t *testing.T) {
+	// The fixture holds an eval for a DIFFERENT model, so the search
+	// route answers normally and only the existence check can produce
+	// the 404. Without that, an empty project would pass this test.
+	t0 := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	aim := fakeAim(t, withModelRun([]fakeRun{
+		makeEvalFakeRun("e1", "glue", "model-1", t0),
+	}))
+	h := makeHandlerWithAim(t, aim)
+
+	req := httptest.NewRequest("GET", "/api/runs/definitely-not-a-run/evals", nil)
+	rr := httptest.NewRecorder()
+	h.HandleRunEvals(rr, req)
+
+	if rr.Code != 404 {
+		t.Fatalf("unknown model hash: expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// The guard must not swallow the ordinary case. A model that exists and
+// has no evals still answers 200 with an empty manifest — deleting the
+// handler body would satisfy the 404 test above and prove nothing.
+func TestHandleRunEvalsKnownModelWithNoEvalsStill200(t *testing.T) {
+	h := makeHandlerWithAim(t, fakeAim(t, withModelRun(nil)))
+
+	got := callEvals(t, h, "model-1")
+	if len(got) != 0 {
+		t.Fatalf("expected an empty manifest, got %d: %v", len(got), got)
 	}
 }
