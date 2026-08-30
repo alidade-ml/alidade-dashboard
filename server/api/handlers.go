@@ -6,6 +6,7 @@ import (
 	"net/http"
 	neturl "net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -652,6 +653,54 @@ func (h *Handler) HandleExperimentIncludes(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, map[string]interface{}{"includes": resolved})
 }
 
+// hashesOfNewestVersion keeps only the runs belonging to an experiment's
+// most recent version, dropping archived ones.
+//
+// Version labels are "v1", "v2", … so they are compared numerically: "v10"
+// sorts after "v9", which a string comparison gets backwards precisely
+// when an experiment has been resubmitted enough for this to matter.
+//
+// Runs with no version tag are kept only when NO run carries one. A repo
+// predating version tagging still resolves to something rather than
+// nothing; a repo that has them should not have an untagged straggler
+// outrank v3.
+func hashesOfNewestVersion(runs []SearchedRun) []string {
+	live := make([]SearchedRun, 0, len(runs))
+	for _, r := range runs {
+		if !r.Archived {
+			live = append(live, r)
+		}
+	}
+
+	newest := -1
+	for _, r := range live {
+		if n, ok := versionOrdinal(AstrolabeTagsFromParams(r.Params).Version); ok && n > newest {
+			newest = n
+		}
+	}
+
+	hashes := make([]string, 0, len(live))
+	for _, r := range live {
+		n, ok := versionOrdinal(AstrolabeTagsFromParams(r.Params).Version)
+		if newest < 0 || (ok && n == newest) {
+			hashes = append(hashes, r.Hash)
+		}
+	}
+	return hashes
+}
+
+// versionOrdinal turns "v3" into 3. Anything else is not a version label.
+func versionOrdinal(label string) (int, bool) {
+	if len(label) < 2 || label[0] != 'v' {
+		return 0, false
+	}
+	n, err := strconv.Atoi(label[1:])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 // resolveIncludeByQuery applies the four-shape resolution order using
 // Aim's search endpoint instead of an index of the whole project.
 //
@@ -691,16 +740,17 @@ func (h *Handler) resolveIncludeByQuery(incName string) IncludeEntry {
 		// Hash-shaped but unknown to Aim — fall through, as before.
 	}
 
-	// 2. Aim experiment name — exact match, multi-run.
+	// 2. Aim experiment name — exact match, newest version only.
+	//
+	// intended-behavior.md section 2: an include resolves "against the most
+	// recent submit of that experiment". Returning every version instead
+	// meant naming one experiment pulled in every run it had ever produced
+	// — a ten-version experiment brought ten training runs plus all of
+	// their evals and samples. Older versions are reached by submit hash,
+	// which resolves exactly one run and always has.
 	if runs, err := h.aim.SearchRuns(QueryByExperiment(incName)); err == nil && len(runs) > 0 {
 		entry.Type = "experiment"
-		entry.Runs = make([]string, 0, len(runs))
-		for _, r := range runs {
-			if r.Archived {
-				continue
-			}
-			entry.Runs = append(entry.Runs, r.Hash)
-		}
+		entry.Runs = hashesOfNewestVersion(runs)
 		if len(entry.Runs) > 0 {
 			return entry
 		}

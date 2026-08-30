@@ -31,6 +31,9 @@ type fakeRunRow struct {
 	experiment   string
 	creationTime float64
 	archived     bool
+	// Empty means the run carries no astrolabe.version tag, which is what
+	// a repo predating version tagging looks like.
+	version string
 }
 
 func encodeSearchBody(rows []fakeRunRow) []byte {
@@ -44,6 +47,9 @@ func encodeSearchBody(rows []fakeRunRow) []byte {
 		add(encPath(r.hash, "props", "archived"), encVal(r.archived))
 		add(encPath(r.hash, "props", "creation_time"), encVal(r.creationTime))
 		add(encPath(r.hash, "props", "experiment", "name"), encVal(r.experiment))
+		if r.version != "" {
+			add(encPath(r.hash, "params", "astrolabe.version"), encVal(r.version))
+		}
 	}
 	// A streaming marker, so every test exercises the filter that drops it.
 	add(encPath("progress_0", "x"), encVal("ignored"))
@@ -286,5 +292,95 @@ func TestQueryResolve_HashShapedExperimentNameFallsThrough(t *testing.T) {
 	}
 	if len(got.Runs) != 1 || got.Runs[0] != "999999999999999999999999" {
 		t.Errorf("runs = %v", got.Runs)
+	}
+}
+
+// --- include-by-name resolves to the newest version only ---
+//
+// intended-behavior.md section 2 says an include resolves "against the most
+// recent submit of that experiment". The resolver returned every run of
+// every version instead, so naming one experiment pulled in every run it
+// had ever produced — for a two-version experiment with evals and samples
+// that was eight runs, six of them evidence rather than models.
+
+func versionedFixture() []fakeRunRow {
+	return []fakeRunRow{
+		{hash: "v1-train", name: "r", experiment: "exp-V", creationTime: 100, version: "v1"},
+		{hash: "v1-eval", name: "r", experiment: "exp-V", creationTime: 110, version: "v1"},
+		{hash: "v2-train", name: "r", experiment: "exp-V", creationTime: 200, version: "v2"},
+		{hash: "v10-train", name: "r", experiment: "exp-V", creationTime: 300, version: "v10"},
+		{hash: "v10-eval", name: "r", experiment: "exp-V", creationTime: 310, version: "v10"},
+	}
+}
+
+func TestQueryResolve_ExperimentReturnsNewestVersionOnly(t *testing.T) {
+	got := resolverFor(t, versionedFixture()).resolveIncludeByQuery("exp-V")
+	if got.Type != "experiment" {
+		t.Fatalf("type = %q, want experiment", got.Type)
+	}
+	want := map[string]bool{"v10-train": true, "v10-eval": true}
+	if len(got.Runs) != len(want) {
+		t.Fatalf("got %d runs, want %d (newest version only): %v",
+			len(got.Runs), len(want), got.Runs)
+	}
+	for _, h := range got.Runs {
+		if !want[h] {
+			t.Errorf("run %q is from an older version and should not resolve", h)
+		}
+	}
+}
+
+// v10 must beat v9. A string comparison gets this backwards, and only on
+// experiments resubmitted enough times for it to matter — which is exactly
+// where a wrong comparison set is most expensive.
+func TestQueryResolve_VersionsCompareNumericallyNotLexically(t *testing.T) {
+	rows := []fakeRunRow{
+		{hash: "nine", name: "r", experiment: "exp-N", creationTime: 100, version: "v9"},
+		{hash: "ten", name: "r", experiment: "exp-N", creationTime: 200, version: "v10"},
+	}
+	got := resolverFor(t, rows).resolveIncludeByQuery("exp-N")
+	if len(got.Runs) != 1 || got.Runs[0] != "ten" {
+		t.Fatalf("runs = %v, want just v10's run", got.Runs)
+	}
+}
+
+// A repo predating version tagging must still resolve to something. Every
+// run untagged means there is no newest version to pick, so all of them
+// stay — the pre-existing behaviour, now stated rather than incidental.
+func TestQueryResolve_UntaggedExperimentReturnsEveryRun(t *testing.T) {
+	rows := []fakeRunRow{
+		{hash: "a", name: "r", experiment: "exp-U", creationTime: 100},
+		{hash: "b", name: "r", experiment: "exp-U", creationTime: 200},
+	}
+	got := resolverFor(t, rows).resolveIncludeByQuery("exp-U")
+	if len(got.Runs) != 2 {
+		t.Fatalf("got %d runs, want both: %v", len(got.Runs), got.Runs)
+	}
+}
+
+// An untagged straggler beside tagged runs must not outrank them. Keeping
+// it would put a run of unknown vintage in a comparison the reader thinks
+// is one version.
+func TestQueryResolve_UntaggedRunDoesNotSurviveBesideTaggedOnes(t *testing.T) {
+	rows := []fakeRunRow{
+		{hash: "legacy", name: "r", experiment: "exp-M", creationTime: 100},
+		{hash: "v3", name: "r", experiment: "exp-M", creationTime: 200, version: "v3"},
+	}
+	got := resolverFor(t, rows).resolveIncludeByQuery("exp-M")
+	if len(got.Runs) != 1 || got.Runs[0] != "v3" {
+		t.Fatalf("runs = %v, want only the tagged v3 run", got.Runs)
+	}
+}
+
+// Archived runs are excluded before the newest version is chosen — an
+// archived v4 must not hide a live v3.
+func TestQueryResolve_ArchivedRunsDoNotDecideTheVersion(t *testing.T) {
+	rows := []fakeRunRow{
+		{hash: "live-v3", name: "r", experiment: "exp-A2", creationTime: 100, version: "v3"},
+		{hash: "gone-v4", name: "r", experiment: "exp-A2", creationTime: 200, version: "v4", archived: true},
+	}
+	got := resolverFor(t, rows).resolveIncludeByQuery("exp-A2")
+	if len(got.Runs) != 1 || got.Runs[0] != "live-v3" {
+		t.Fatalf("runs = %v, want the live v3 run", got.Runs)
 	}
 }
