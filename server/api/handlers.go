@@ -894,10 +894,29 @@ func (h *Handler) HandleMetricData(w http.ResponseWriter, r *http.Request) {
 
 	// Try to attach wall_time per step. The AstrolabeLogger writes
 	// `wall_time` as its own metric (elapsed seconds since run start).
-	// Indexing by step lets us zip it with any other metric without
-	// caring whether the two metrics were tracked at exactly the same
-	// moments. Skip the fetch when the requested metric IS wall_time —
-	// that would be circular and pointless.
+	//
+	// Pairing is by exact step, and that is only correct because the
+	// producer writes wall_time at the steps it writes other metrics at.
+	//
+	// Aim returns a RESERVOIR, not a stride: a metric's data is a
+	// SequenceV2Data, and 200 points back means the reservoir's contents.
+	// Measured — deterministic, independent of the values, and a function
+	// of the item count alone: two series of equal length come back on an
+	// identical grid, so every point pairs.
+	//
+	// One extra item does not extend the grid, it EVICTS one. Writing 301
+	// wall_time samples against 300 of another metric dropped step 235 and
+	// added 300, so a step mid-run lost its pair. The damage from a
+	// spurious sample lands on an arbitrary earlier step, never the tail,
+	// which is why "one extra point at the end" is not the harmless thing
+	// it sounds like.
+	//
+	// The callback lost that property once by writing a trailing wall_time
+	// no other metric shared. If interior nulls appear here again, suspect
+	// the producer's step parity before this join.
+	//
+	// Skip the fetch when the requested metric IS wall_time — that would
+	// be circular and pointless.
 	if metricName != "wall_time" {
 		if wt, err := h.aim.GetMetric(hash, "wall_time", nil); err == nil && len(wt.Iters) > 0 {
 			byStep := make(map[int]float64, len(wt.Iters))
