@@ -900,75 +900,26 @@ func (h *Handler) HandleMetricData(w http.ResponseWriter, r *http.Request) {
 	// that would be circular and pointless.
 	if metricName != "wall_time" {
 		if wt, err := h.aim.GetMetric(hash, "wall_time", nil); err == nil && len(wt.Iters) > 0 {
-			if times, any := wallTimesForSteps(wt, data.Iters); any {
+			byStep := make(map[int]float64, len(wt.Iters))
+			for i, step := range wt.Iters {
+				byStep[step] = wt.Values[i]
+			}
+			times := make([]*float64, len(data.Iters))
+			anyMatched := false
+			for i, step := range data.Iters {
+				if v, ok := byStep[step]; ok {
+					paired := v
+					times[i] = &paired
+					anyMatched = true
+				}
+			}
+			if anyMatched {
 				resp.WallTimes = times
 			}
 		}
 	}
 
 	writeJSON(w, resp)
-}
-
-// wallTimesForSteps aligns a wall_time series onto another metric's steps.
-//
-// The two series are fetched separately and Aim downsamples each request on
-// its own, so they do not come back on the same grid — a step kept in one
-// response is routinely dropped from the other. Matching on exact step
-// number therefore produced interior nulls that do not exist in the
-// underlying data, and the hole count grows with how hard the series are
-// downsampled rather than being a fixed tail artifact.
-//
-// Interpolation rather than a tighter fetch, because it is correct whatever
-// the sampler does. wall_time is elapsed seconds and monotonically
-// non-decreasing in step, so a value between two samples is well defined —
-// this is reading a continuous quantity at a point, not guessing a missing
-// measurement.
-//
-// Steps outside the sampled range stay nil. Extrapolating past the last
-// observation would invent elapsed time, and nil already has a rendering.
-func wallTimesForSteps(wt *MetricData, steps []int) ([]*float64, bool) {
-	type sample struct {
-		step  int
-		value float64
-	}
-	samples := make([]sample, 0, len(wt.Iters))
-	for i, s := range wt.Iters {
-		if i < len(wt.Values) {
-			samples = append(samples, sample{step: s, value: wt.Values[i]})
-		}
-	}
-	if len(samples) == 0 {
-		return nil, false
-	}
-	sort.Slice(samples, func(i, j int) bool { return samples[i].step < samples[j].step })
-
-	out := make([]*float64, len(steps))
-	any := false
-	for i, step := range steps {
-		// First sample at or after this step.
-		j := sort.Search(len(samples), func(k int) bool { return samples[k].step >= step })
-
-		var v float64
-		switch {
-		case j < len(samples) && samples[j].step == step:
-			v = samples[j].value
-		case j == 0 || j == len(samples):
-			continue // before the first or after the last sample
-		default:
-			lo, hi := samples[j-1], samples[j]
-			span := float64(hi.step - lo.step)
-			if span <= 0 {
-				v = lo.value
-			} else {
-				frac := float64(step-lo.step) / span
-				v = lo.value + frac*(hi.value-lo.value)
-			}
-		}
-		paired := v
-		out[i] = &paired
-		any = true
-	}
-	return out, any
 }
 
 // HandleRunInfo returns full run info (props + metric list).
