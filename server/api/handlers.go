@@ -892,34 +892,71 @@ func (h *Handler) HandleMetricData(w http.ResponseWriter, r *http.Request) {
 		Values: data.Values,
 	}
 
-	// Try to attach wall_time per step. The AstrolabeLogger writes
-	// `wall_time` as its own metric (elapsed seconds since run start).
-	// Indexing by step lets us zip it with any other metric without
-	// caring whether the two metrics were tracked at exactly the same
-	// moments. Skip the fetch when the requested metric IS wall_time —
-	// that would be circular and pointless.
+	// Attach wall_time per plotted point.
+	//
+	// Asked of Aim's align endpoint rather than fetched as a second
+	// metric and matched on step. An index has to be denser than the
+	// thing it indexes, and get-batch caps every series at 200: two
+	// series sampled to 200 from different raw lengths land on different
+	// steps, and a sparse metric (a validation curve returned whole) may
+	// share none of the wall_time grid at all. Aim looks each step up
+	// against wall_time's full series server-side.
+	//
+	// Skip when the requested metric IS wall_time — circular.
 	if metricName != "wall_time" {
-		if wt, err := h.aim.GetMetric(hash, "wall_time", nil); err == nil && len(wt.Iters) > 0 {
-			byStep := make(map[int]float64, len(wt.Iters))
-			for i, step := range wt.Iters {
-				byStep[step] = wt.Values[i]
-			}
-			times := make([]*float64, len(data.Iters))
-			anyMatched := false
-			for i, step := range data.Iters {
-				if v, ok := byStep[step]; ok {
-					paired := v
-					times[i] = &paired
-					anyMatched = true
-				}
-			}
-			if anyMatched {
+		if xs, err := h.aim.GetAlignedXAxis(hash, metricName, "wall_time"); err == nil && len(xs) > 0 {
+			if times, ok := restoreLeadingZeros(xs, len(data.Iters)); ok {
 				resp.WallTimes = times
 			}
 		}
 	}
 
 	writeJSON(w, resp)
+}
+
+// restoreLeadingZeros pads an aligned x-axis back to one value per point.
+//
+// Aim's collect_x_axis_data filters with `if x_val:`, so an x value of
+// exactly 0.0 is dropped. wall_time is elapsed seconds and returns a
+// literal 0.0 until the first training batch anchors the tracker, so the
+// dropped values are always the leading ones — elapsed time is
+// non-decreasing from zero, and no later sample can be falsy.
+//
+// That makes the loss exactly recoverable rather than merely tolerable:
+// the only falsy float elapsed() can produce is 0.0, so the missing
+// values ARE zeros and are prepended as such. Nothing is interpolated.
+//
+// Refuses rather than pads when the shortfall is implausible. If Aim ever
+// drops a value that is not a leading zero, positional pairing is wrong
+// and shifting the whole series would render a confident, wrong chart —
+// the exact failure mode this replaced. Returning false drops the
+// wall-clock axis, which is visible.
+func restoreLeadingZeros(xs []float64, want int) ([]*float64, bool) {
+	if len(xs) > want {
+		return nil, false // more x values than points: not our shape
+	}
+	missing := want - len(xs)
+	// A run logging before its first batch can produce a handful of
+	// zeros, not a third of the series. Beyond that, assume the prefix
+	// theory does not hold here rather than silently shifting.
+	if missing > 8 {
+		return nil, false
+	}
+	if missing > 0 && len(xs) > 0 && xs[0] == 0 {
+		// The first surviving value is itself zero, so the drop was not
+		// a clean prefix of zeros and the offset is unknowable.
+		return nil, false
+	}
+	out := make([]*float64, want)
+	for i := 0; i < missing; i++ {
+		zero := 0.0
+		out[i] = &zero
+	}
+	for i, v := range xs {
+		val := v
+		out[missing+i] = &val
+	}
+	return out, true
 }
 
 // HandleRunInfo returns full run info (props + metric list).
