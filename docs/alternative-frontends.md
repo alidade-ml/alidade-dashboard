@@ -36,7 +36,7 @@ The simplest path. The Go server runs on the NUC at `http://<nuc>:43801` and exp
 | `GET`  | `/api/runs/{hash}/info`            | Full Aim metadata for a run (params, traces, props)                                                       |
 | `GET`  | `/api/runs/{hash}/metrics`         | Available metric names for a run                                                                          |
 | `GET`  | `/api/runs/{hash}/metrics/{name}`  | Time-series for one metric (steps, values, wall_times)                                                    |
-| `GET`  | `/api/runs/{hash}/evals`           | Eval-discovery manifest: eval Aim runs that score this training run (one per task_set, deduped by newest) |
+| `GET`  | `/api/runs/{hash}/evals`           | Eval-discovery manifest: eval Aim runs that score this training run (one per task_set, deduped by newest). `404` if the hash is not a run — an empty list means the model has no evals, and the two are different answers |
 | `GET`  | `/api/config/colors`               | Color palette for chart rendering                                                                         |
 | `GET`  | `/api/health`                      | Connectivity check against upstream Aim API                                                               |
 
@@ -98,6 +98,8 @@ kind and a consumer previously had no way to see that, or to apply its own rule.
 
 `wall_times` is elapsed seconds since first training batch (not since run start) — see [astrolabe-callbacks contract](https://github.com/naston/astrolabe-callbacks/blob/main/docs/contract.md). Omitted if the run wasn't logged with our callback.
 
+When present it is **index-aligned with `steps` and the same length**, so a frontend can zip the two without checking. Entries may be `null` only if the axis could not be resolved for a point; the array is never shorter than `steps`. It is resolved through Aim's align endpoint against the full `wall_time` series rather than by matching two separately-sampled series, so a sparse metric — a validation curve of a handful of points — gets a value at every point rather than only where two sampling grids happened to agree.
+
 **IncludeEntry** — items in `/api/experiments/{name}/includes`:
 
 ```json
@@ -109,6 +111,8 @@ kind and a consumer previously had no way to see that, or to apply its own rule.
 ```
 
 `type` is one of `experiment` / `hash` / `run-name` / `unknown`. `name` is always the human-readable display string for the chip — even when type=hash, `name` is the resolved Aim run.name, not the input hash.
+
+**`type: experiment` resolves to that experiment's most recent version only.** Naming an experiment is a shortcut to "whatever is current", and it keeps moving as the experiment is resubmitted. To pin a specific version, include its submit hash — that resolves exactly one run and never drifts. A repo predating version tagging resolves to every run, since there is no version to pick.
 
 ### Quick example: Streamlit dashboard
 
