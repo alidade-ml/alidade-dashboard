@@ -252,6 +252,8 @@ func encVal(v any) []byte {
 			b = 1
 		}
 		return []byte{tagBool, b}
+	case []byte:
+		return append([]byte{tagBytes}, x...)
 	case float64:
 		out := make([]byte, 9)
 		out[0] = tagFloat

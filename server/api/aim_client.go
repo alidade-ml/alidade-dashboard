@@ -1,10 +1,12 @@
 package api
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	neturl "net/url"
 	"sort"
@@ -584,6 +586,126 @@ func ParseObjectSequence(body []byte) (*ObjectSequence, error) {
 		seq.Records = append(seq.Records, *byIndex[i])
 	}
 	return seq, nil
+}
+
+// aimGetBatchDensity is how many points Aim's per-run metric endpoint
+// returns. It is hardcoded server-side — collect_requested_metric_traces
+// defaults steps_num=200 and the route passes nothing — so we cannot ask
+// for more, and the align request below must ask for the SAME number or
+// it computes its steps from a different sample and lines up with
+// nothing.
+const aimGetBatchDensity = 200
+
+// GetAlignedXAxis returns one x-axis value per point of `metricName`,
+// read from the `alignBy` metric.
+//
+// Why not fetch alignBy as an ordinary metric and match on step: an index
+// has to be denser than the thing it indexes, and get-batch caps both at
+// 200. Two series sampled to 200 from different raw lengths land on
+// different steps, so the match fails — and for a sparse metric (a
+// validation curve with 6 points, returned whole) the 200-point wall_time
+// grid may not contain its steps at all.
+//
+// Aim does the lookup server-side against alignBy's FULL series, so this
+// is correct for dense and sparse metrics alike and costs one value per
+// plotted point rather than the whole series.
+//
+// The returned slice may be SHORTER than the metric's point count. Aim
+// drops falsy x values, and elapsed time starts at exactly 0.0. See
+// restoreLeadingZeros.
+func (c *AimClient) GetAlignedXAxis(runHash, metricName, alignBy string) ([]float64, error) {
+	url := fmt.Sprintf("%s/api/runs/search/metric/align/", c.baseURL)
+
+	// slice is (start, stop, count) and Aim reads only the last element,
+	// as the sample count.
+	reqBody := map[string]any{
+		"align_by": alignBy,
+		"runs": []map[string]any{{
+			"run_id": runHash,
+			"traces": []map[string]any{{
+				"name":    metricName,
+				"context": map[string]any{},
+				"slice":   []int{0, 0, aimGetBatchDensity},
+			}},
+		}},
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling align request: %w", err)
+	}
+
+	resp, err := c.httpClient.Post(url, "application/json", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("aim API unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("aim align returned %d: %s", resp.StatusCode, string(b))
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading align response: %w", err)
+	}
+	return ParseAlignedXAxis(raw)
+}
+
+// ParseAlignedXAxis pulls the x_axis_values blob out of an align response.
+//
+// Shape, one trace per requested metric:
+//
+//	<run_hash>/<i>/name
+//	<run_hash>/<i>/x_axis_values/{type,shape,dtype,blob}
+//	<run_hash>/<i>/x_axis_iters/{type,shape,dtype,blob}
+//
+// x_axis_iters is deliberately ignored: those are Aim's internal step
+// HASHES, not step numbers, so they cannot be joined against anything the
+// dashboard knows. Pairing is positional, which is sound only because the
+// values Aim drops are a known prefix — see restoreLeadingZeros.
+func ParseAlignedXAxis(body []byte) ([]float64, error) {
+	entries, err := DecodeTree(body)
+	if err != nil {
+		return nil, err
+	}
+
+	var blob []byte
+	var dtype string
+	for _, e := range entries {
+		if len(e.Path) != 4 {
+			continue
+		}
+		field, ok := e.Path[2].(string)
+		if !ok || field != "x_axis_values" {
+			continue
+		}
+		switch e.Path[3] {
+		case "blob":
+			if b, ok := e.Value.([]byte); ok {
+				blob = b
+			}
+		case "dtype":
+			if s, ok := e.Value.(string); ok {
+				dtype = s
+			}
+		}
+	}
+	if blob == nil {
+		// No trace came back — the run has no such metric, or no
+		// alignBy series. Not an error; the caller renders without a
+		// wall-clock axis.
+		return nil, nil
+	}
+	if dtype != "float64" {
+		return nil, fmt.Errorf("align x-axis has dtype %q, expected float64", dtype)
+	}
+	if len(blob)%8 != 0 {
+		return nil, fmt.Errorf("align x-axis blob is %d bytes, not a whole number of float64", len(blob))
+	}
+	out := make([]float64, len(blob)/8)
+	for i := range out {
+		out[i] = math.Float64frombits(binary.LittleEndian.Uint64(blob[i*8:]))
+	}
+	return out, nil
 }
 
 // GetBlobs resolves image blob URIs to bytes.
