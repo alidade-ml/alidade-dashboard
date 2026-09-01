@@ -217,8 +217,8 @@ If your training framework isn't one of the four we ship callbacks for (Composer
 import os, aim
 
 run = aim.Run(
-    repo=os.environ.get("ASTROLABE_AIM_URL", "aim://localhost:43800"),
-    experiment=os.environ.get("ASTROLABE_EXPERIMENT_NAME"),
+    repo=os.environ.get("ALIDADE_AIM_URL", "aim://localhost:43800"),
+    experiment=os.environ.get("ALIDADE_EXPERIMENT_NAME"),
 )
 
 # AIM_RUN_TAGS format: "key1=val1,key2=val2"

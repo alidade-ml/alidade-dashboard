@@ -18,7 +18,7 @@ Rules enforced by CI:
   violation; ``tools/check-contract-stdlib-only.py`` blocks merge.
 - Modifying this file requires bumping ``CONTRACT_VERSION``;
   ``tools/check-contract-bump.py`` blocks merge.
-- Every ``ASTROLABE_*``/``AIM_*`` env var the engine sets and every
+- Every ``ALIDADE_*``/``AIM_*`` env var the engine sets and every
   ``astrolabe.*`` Aim tag the engine reads must appear as a constant
   here; ``tests/test_contract_completeness.py`` enforces.
 - Bare contract-literal strings outside this file are a violation;
@@ -42,7 +42,7 @@ from __future__ import annotations
 # vendored from; the engine refuses submits whose pinned callback was
 # vendored against a contract older than what this engine version
 # requires.
-CONTRACT_VERSION = "1.8.0"
+CONTRACT_VERSION = "2.0.0"
 
 # --- Env vars: ENGINE sets in the training process -------------------------
 #
@@ -51,13 +51,15 @@ CONTRACT_VERSION = "1.8.0"
 # (directly or via helpers) to wire itself to the orchestration.
 
 # Unique identifier for one submit (one `astrolabe submit` invocation).
-# Callbacks tag the Aim run with this so the dashboard can link the run
-# back to the submit row in the state DB.
-ENV_SUBMIT_ID = "ASTROLABE_SUBMIT_ID"
+# The Aim run carries it as ``astrolabe.submit_id``, which arrives through
+# AIM_RUN_TAGS rather than from this variable; the callback reads this one
+# directly only for checkpoint provenance.
+ENV_SUBMIT_ID = "ALIDADE_SUBMIT_ID"
 
-# Human-readable experiment name from the YAML. Callbacks may use this
-# as the Aim run name when one isn't set explicitly.
-ENV_EXPERIMENT_NAME = "ASTROLABE_EXPERIMENT_NAME"
+# Human-readable experiment name from the YAML. The callback resolves it
+# as the Aim *experiment*, taking precedence over any experiment_name
+# passed at the call site. Not the run name, which is a separate field.
+ENV_EXPERIMENT_NAME = "ALIDADE_EXPERIMENT_NAME"
 
 # Tag dict the engine wants applied to every run produced under this
 # submit. Wire format: ``key1=val1,key2=val2`` (NOT JSON — keys and
@@ -67,32 +69,40 @@ ENV_EXPERIMENT_NAME = "ASTROLABE_EXPERIMENT_NAME"
 ENV_AIM_RUN_TAGS = "AIM_RUN_TAGS"
 
 # Filesystem path to the local Aim repo the callback should write
-# through. Set only when the NUC has ``aim_local_mode: true`` in
-# ``/etc/astrolabe/config.yaml`` (v1.7.0+). When unset, callbacks fall
-# back to the tunneled Aim server at ``aim://localhost:43800``.
+# through. Set unless the NUC selected the tunnel transport with
+# ``aim_local_mode: false``, in which case callbacks fall back to the
+# tunneled Aim server at ``aim://localhost:43800``.
 # Engine constructs the value via :func:`format_local_aim_repo_path`.
-ENV_AIM_REPO_PATH = "ASTROLABE_AIM_REPO_PATH"
+ENV_AIM_REPO_PATH = "ALIDADE_AIM_REPO_PATH"
 
-# Path to a jsonl file the callback appends structured events to (run
-# open/close, schema finalize, dropped batches, etc.). Used by the
-# canary verifier harness for cross-checking claimed side effects.
-ENV_CALLBACK_STATS_PATH = "ASTROLABE_CALLBACK_STATS_PATH"
+# Path to a jsonl file the callback appends structured events to: buffer
+# heartbeats, sample submissions, run close, drain failures, schema
+# finalizes. Every record comes from a live run, so a non-empty file is
+# evidence one existed. There is no run-open record.
+# Read by the canary verifier and by the engine's sidecar gate.
+ENV_CALLBACK_STATS_PATH = "ALIDADE_CALLBACK_STATS_PATH"
 
-# Directory the engine has provisioned for per-rank stdout/stderr logs
-# during distributed training. Callbacks (and frameworks) write rank-N
-# logs into ``$ASTROLABE_RANK_LOGS_DIR/rank-N.{stdout,stderr}``.
-ENV_RANK_LOGS_DIR = "ASTROLABE_RANK_LOGS_DIR"
+# Directory the engine provisions for per-rank stdout/stderr logs during
+# distributed training, and pulls back at step end. Written by the
+# researcher's own launcher command, which has to opt in by pointing at
+# it. No callback reads this.
+ENV_RANK_LOGS_DIR = "ALIDADE_RANK_LOGS_DIR"
 
 # Filesystem path the astrolabe-callbacks library touches when the
 # first Aim metric write lands.  The engine probes this path at
 # step-failure time to enforce ``until: first_metric`` healing bounds
 # (:class:`astrolabe.config.StepHealingConfig`).
-ENV_FIRST_METRIC_MARKER = "ASTROLABE_FIRST_METRIC_MARKER"
+ENV_FIRST_METRIC_MARKER = "ALIDADE_FIRST_METRIC_MARKER"
 
 # Same mechanism for ``until: first_checkpoint``.  Separate marker
 # because the two windows close on different events: a run can emit
 # metrics for hours before its first checkpoint.
-ENV_FIRST_CHECKPOINT_MARKER = "ASTROLABE_FIRST_CHECKPOINT_MARKER"
+ENV_FIRST_CHECKPOINT_MARKER = "ALIDADE_FIRST_CHECKPOINT_MARKER"
+
+# Where the callback records the model entries it minted for models
+# astrolabe never trained, so every step of one submit attributes to the
+# same entry instead of forking one per call.
+ENV_EXTERNAL_MODELS = "ALIDADE_EXTERNAL_MODELS"
 
 # --- Aim run tags: CALLBACK writes, ENGINE + dashboard read ----------------
 #
@@ -157,9 +167,10 @@ NAMESPACE_TRAIN = "train/"           # during-training metrics
 NAMESPACE_VAL = "val/"               # during-training validation
 NAMESPACE_EVAL = "eval/"             # post-training benchmarks
 
-# Engine-synthesized metric: wall-clock time at each step. Callbacks
-# don't write this themselves; the engine derives it from Aim's
-# per-step timestamps when the Go API serves the run.
+# Wall-clock elapsed seconds, written by the callback alongside the
+# metrics of the step it belongs to so the dashboard can offer a
+# wall-clock x-axis. The name says synthesized because no framework
+# emits it; the callback derives it, and the engine only reads it.
 SYNTHESIZED_WALL_TIME = "wall_time"
 
 # --- Defaults --------------------------------------------------------------
@@ -174,8 +185,8 @@ LOCAL_AIM_REPO_PATH_TEMPLATE = "/tmp/aim-local-{submit_id}"
 # ``sample/<set>/output``, paired by step.
 #
 # Declared here because it has two consumers that must agree exactly: the
-# callback builds these names, and the NUC-side exporter reads them back
-# (SAMPEXP-1). A disagreement is silent — the reader finds no sequence and
+# callback builds these names, and the NUC-side exporter reads them back.
+# A disagreement is silent — the reader finds no sequence and
 # reports a batch with no samples, which is a plausible and wrong answer.
 # Substitute via :func:`format_sample_sequence_name`; do not call
 # ``.format(...)`` at a call site.
@@ -185,12 +196,12 @@ SAMPLE_SEQUENCE_TEMPLATE = "sample/{sample_set}/{role}"
 SAMPLE_ROLE_INPUT = "input"
 SAMPLE_ROLE_OUTPUT = "output"
 
-# Default Aim tracking-server URL. The engine opens a reverse SSH
-# tunnel from the compute host to the NUC's Aim server on port 43800
-# (see ``astrolabe.engine._setup``). Training-time consumers (callbacks
-# and the canary workload) connect to this URL by default; both sides
-# of the contract MUST agree on the port number so the tunnel + client
-# pair line up.
+# Aim tracking-server URL for tunnel transport, which a NUC selects with
+# ``aim_local_mode: false``. The engine then opens a reverse SSH tunnel
+# from the compute host to the NUC's Aim server on port 43800 (see
+# ``astrolabe.engine._setup``). Both sides MUST agree on the port so the
+# tunnel and client pair line up. Under the default local-aim transport
+# nothing listens here — callbacks use ALIDADE_AIM_REPO_PATH instead.
 DEFAULT_AIM_URL = "aim://localhost:43800"
 
 # --- Canonical formatters / parsers ---------------------------------------
@@ -202,7 +213,7 @@ DEFAULT_AIM_URL = "aim://localhost:43800"
 # Why these specifically: only values with non-trivial encodings need a
 # helper. A constant like ``ENV_SUBMIT_ID`` is just a name; the value
 # is just a string passed through, no encoding involved. ``AIM_RUN_TAGS``
-# encodes a dict into a single string, and ``ASTROLABE_AIM_REPO_PATH``
+# encodes a dict into a single string, and ``ALIDADE_AIM_REPO_PATH``
 # templates a submit_id into a path — both are encodings, both need
 # canonical helpers.
 
@@ -310,7 +321,7 @@ def format_sample_sequence_name(sample_set: str, role: str) -> str:
 def format_first_metric_marker_path(submit_id: str, step_num: int) -> str:
     """Construct the per-step first-metric marker path.
 
-    Engine sets ``ASTROLABE_FIRST_METRIC_MARKER`` to this value.  The
+    Engine sets ``ALIDADE_FIRST_METRIC_MARKER`` to this value.  The
     astrolabe-callbacks library touches this file on the first Aim
     metric write; the engine probes it to enforce
     ``until: first_metric`` healing bounds.
@@ -323,10 +334,34 @@ def format_first_metric_marker_path(submit_id: str, step_num: int) -> str:
     return f"astrolabe-first-metric-{submit_id}-step{step_num}.marker"
 
 
+def format_external_models_path(submit_id: str) -> str:
+    """Construct the per-submit external-model registry path.
+
+    Engine sets ``ALIDADE_EXTERNAL_MODELS`` to this value. The callback
+    reads it before minting an entry for an ``external_name=`` model and
+    writes back what it minted, so a submit that scores one downloaded
+    model across several steps produces one entry rather than one per
+    call.
+
+    **Keyed on submit, not step** — the opposite of the marker paths
+    above, and for the opposite reason. A marker must not leak across
+    steps because it is evidence about one step. This is an identity, and
+    identity leaking across the steps of a submit is the entire point:
+    GLUE, MMLU and BEIR as three steps are three results about one model.
+
+    Deliberately not shared beyond the submit. Reusing an entry across
+    submits would need a lookup, and under local-aim transport the
+    compute host sees only its own submit's runs — it would find nothing
+    and mint a duplicate anyway, silently. A submit is exactly the scope
+    that can be answered from a local file.
+    """
+    return f"astrolabe-external-models-{submit_id}.json"
+
+
 def format_first_checkpoint_marker_path(submit_id: str, step_num: int) -> str:
     """Construct the per-step first-checkpoint marker path.
 
-    Engine sets ``ASTROLABE_FIRST_CHECKPOINT_MARKER`` to this value.
+    Engine sets ``ALIDADE_FIRST_CHECKPOINT_MARKER`` to this value.
     The astrolabe-callbacks library touches this file when the first
     checkpoint of the step is written; the engine probes it to enforce
     ``until: first_checkpoint`` healing bounds.
