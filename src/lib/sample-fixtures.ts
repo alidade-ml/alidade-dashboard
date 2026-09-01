@@ -1,7 +1,7 @@
 /**
  * Stand-in sample data for the grouping prototype.
  *
- * Shaped exactly like what `astrolabe_callbacks.log_samples` writes, so the
+ * Shaped exactly like what `alidade_callbacks.log_samples` writes, so the
  * grouping logic here is exercised against the real field set rather than a
  * convenient one:
  *

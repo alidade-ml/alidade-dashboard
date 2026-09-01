@@ -209,7 +209,7 @@ type AstrolabeTags struct {
 	// to the model run they score. Empty on non-eval runs.
 	TaskSet      string
 	ModelRunHash string
-	// SampleSet is written by astrolabe_callbacks.log_samples onto sample
+	// SampleSet is written by alidade_callbacks.log_samples onto sample
 	// runs (``Kind == "sample"``). It labels one batch of qualitative
 	// outputs — "faces", "sentence-completion" — and the Examples tab
 	// groups by it. Empty on non-sample runs.

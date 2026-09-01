@@ -4,7 +4,7 @@
 # .github/workflows/release.yml — that's what publishes the binary +
 # wheel to GitHub releases when a tag is pushed.
 
-BINARY = astrolabe-dashboard
+BINARY = alidade-dashboard
 CMD = ./cmd
 CONFIG = ./config
 # Static lives at the repo root after `bun run build` writes to dist/.

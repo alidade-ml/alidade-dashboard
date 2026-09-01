@@ -1,4 +1,4 @@
-module github.com/naston/astrolabe-insights-hub/server
+module github.com/alidade-ml/alidade-dashboard/server
 
 go 1.26.2
 

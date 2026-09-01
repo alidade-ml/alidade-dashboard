@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-// CostResponse mirrors astrolabe-insights-hub/src/lib/types.ts. All
+// CostResponse mirrors alidade-dashboard/src/lib/types.ts. All
 // money in integer cents; the frontend formats with the standard
 // 2-decimal locale.
 type CostResponse struct {

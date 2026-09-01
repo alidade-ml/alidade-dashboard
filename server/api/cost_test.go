@@ -1,7 +1,7 @@
 package api
 
 // Tests for the cost handler. Contract under test (per
-// astrolabe-insights-hub/src/lib/types.ts):
+// alidade-dashboard/src/lib/types.ts):
 //
 //   - No submits → response has empty arrays, no panic
 //   - nil StateReader → empty response (handler must not 5xx on fresh
