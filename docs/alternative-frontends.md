@@ -1,8 +1,8 @@
 # Building your own frontend
 
-A practitioner's cookbook for surfacing astrolabe's data outside the bundled dashboard. Aimed at someone who wants to display experiments / runs / metrics in Linear, Notion, a Slack bot, a Streamlit dashboard, an internal tool — without forking this repo.
+A practitioner's cookbook for surfacing alidade's data outside the bundled dashboard. Aimed at someone who wants to display experiments / runs / metrics in Linear, Notion, a Slack bot, a Streamlit dashboard, an internal tool — without forking this repo.
 
-> **Status as of v1.6.x**: the canonical UI (this dashboard) covers training-time scalar metrics and orchestration metadata. Anything richer (attention maps, gradient histograms, sample outputs) is out of first-class scope by design — astrolabe owns the lifecycle and comparison story; Aim owns the data-lake. The escape hatches below let you build whatever surface you want without us being in the way.
+> **Status as of v1.6.x**: the canonical UI (this dashboard) covers training-time scalar metrics and orchestration metadata. Anything richer (attention maps, gradient histograms, sample outputs) is out of first-class scope by design — alidade owns the lifecycle and comparison story; Aim owns the data-lake. The escape hatches below let you build whatever surface you want without us being in the way.
 >
 > We'll revisit the scope question around v3, when external usage gives signal on what people actually want.
 
@@ -13,8 +13,8 @@ A practitioner's cookbook for surfacing astrolabe's data outside the bundled das
 | Goal                                                                         | Lane                                                       |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | "Display experiments / runs / version groups in my own UI"                   | **Lane 1**: read from this dashboard's Go API.             |
-| "Display non-scalar Aim data (images, histograms) with astrolabe's grouping" | **Lane 2**: talk to Aim directly, use our tag conventions. |
-| "Log from training code without the `astrolabe-callbacks` library"           | **Lane 3**: mimic the callback's env-var-to-tag wiring.    |
+| "Display non-scalar Aim data (images, histograms) with alidade's grouping" | **Lane 2**: talk to Aim directly, use our tag conventions. |
+| "Log from training code without the `alidade-callbacks` library"           | **Lane 3**: mimic the callback's env-var-to-tag wiring.    |
 
 Lanes 1 and 2 compose — a custom UI can read both this dashboard's API for orchestration data and Aim's API for the rich metric types we don't surface.
 
@@ -96,7 +96,7 @@ kind and a consumer previously had no way to see that, or to apply its own rule.
 }
 ```
 
-`wall_times` is elapsed seconds since first training batch (not since run start) — see [astrolabe-callbacks contract](https://github.com/naston/astrolabe-callbacks/blob/main/docs/contract.md). Omitted if the run wasn't logged with our callback.
+`wall_times` is elapsed seconds since first training batch (not since run start) — see [alidade-callbacks contract](https://github.com/alidade-ml/alidade-callbacks/blob/main/docs/contract.md). Omitted if the run wasn't logged with our callback.
 
 When present it is **index-aligned with `steps` and the same length**, so a frontend can zip the two without checking. Entries may be `null` only if the axis could not be resolved for a point; the array is never shorter than `steps`. It is resolved through Aim's align endpoint against the full `wall_time` series rather than by matching two separately-sampled series, so a sparse metric — a validation curve of a handful of points — gets a value at every point rather than only where two sampling grids happened to agree.
 
@@ -122,7 +122,7 @@ import requests, streamlit as st
 BASE = "http://nuc.local:43801"
 exps = requests.get(f"{BASE}/api/experiments").json()
 
-st.title("My astrolabe view")
+st.title("My alidade view")
 for exp in exps:
     with st.expander(f"{exp['name']} — {exp['state']}"):
         st.write(f"Submitter: {exp.get('submitted_by', 'unknown')}")
@@ -150,7 +150,7 @@ def daily_digest():
 - **Auth.** No tokens, no per-user filtering. If your tool is shared, it sees everyone's runs.
 - **Real-time push.** Polling only — typical cadence is 5–10s in our React frontend.
 - **Non-scalar metrics.** No images, no distributions, no audio. Use Lane 2 for those.
-- **Mutation.** Read-only. Run/experiment lifecycle is managed by `astrolabe submit` / `astrolabe stop`, not via API.
+- **Mutation.** Read-only. Run/experiment lifecycle is managed by `alidade submit` / `alidade stop`, not via API.
 - **Pagination.** All list endpoints return the full set. Filter / paginate client-side. Fine through ~hundreds of experiments; if you have thousands, we'd need to add pagination here.
 
 ---
@@ -161,17 +161,17 @@ If you want to display non-scalar data (attention maps logged via `aim.Image`, g
 
 ### What's in Aim
 
-Every astrolabe-orchestrated run lives in the Aim repo at `aim://localhost:43800` (gRPC) and `http://localhost:43802` (REST API). Each run carries our tag conventions:
+Every alidade-orchestrated run lives in the Aim repo at `aim://localhost:43800` (gRPC) and `http://localhost:43802` (REST API). Each run carries our tag conventions:
 
 | Tag                    | Meaning                                                    |
 | ---------------------- | ---------------------------------------------------------- |
-| `astrolabe.experiment` | The astrolabe experiment name (matches `/api/experiments`) |
+| `astrolabe.experiment` | The alidade experiment name (matches `/api/experiments`) |
 | `astrolabe.version`    | Submit version (`v1`, `v2`, …) — increments per re-submit  |
 | `astrolabe.submit_id`  | UUID for this specific submit                              |
 | `astrolabe.user`       | Submitter identity (matches `submitted_by`)                |
 | `astrolabe.status`     | `completed` / `failed` / `interrupted` (set on close)      |
 
-Use these to group runs across experiments / versions / submitters in your custom UI without re-implementing astrolabe's orchestration concepts.
+Use these to group runs across experiments / versions / submitters in your custom UI without re-implementing alidade's orchestration concepts.
 
 ### Example: pull an image metric out of Aim
 
@@ -209,7 +209,7 @@ for run_summary in exp["runs"]:
 
 ---
 
-## Lane 3: log from training code without `astrolabe-callbacks`
+## Lane 3: log from training code without `alidade-callbacks`
 
 If your training framework isn't one of the four we ship callbacks for (Composer, Lightning, HF Trainer, raw PyTorch), or you have reasons to roll your own, the contract is small. Read three env vars, set them on your Aim run:
 
@@ -233,14 +233,14 @@ run["astrolabe.status"] = "completed"  # or "failed" on exception
 run.close()
 ```
 
-That's the entire contract. If you do this, every astrolabe feature works:
+That's the entire contract. If you do this, every alidade feature works:
 
 - ✅ Dashboard groups by experiment + version
 - ✅ Dashboard attributes runs to submitter
 - ✅ `--include` resolves your runs by hash, experiment, or run-name
 - ✅ Reports (Linear / Outline) find your runs and aggregate metrics
 
-If you skip the env-var wiring and just use `aim.Run()` with no astrolabe tags:
+If you skip the env-var wiring and just use `aim.Run()` with no alidade tags:
 
 - ✅ Orchestration lifecycle (queue, status, stop, doctor) — **all unaffected**
 - ✅ `--include <hash>` — works (hash is Aim's primary key, no tags needed)
@@ -253,7 +253,7 @@ The orchestration layer doesn't care; the visualization layer does.
 
 ### What we recommend
 
-If your framework has stable callback hooks, use [`astrolabe-callbacks`](https://github.com/naston/astrolabe-composer-callback) — Composer, Lightning, and HF Trainer get framework integrations; raw loops get the `Run` context manager. The library is ~100 lines of boilerplate per framework, and you avoid drift on conventions like the metric prefix (validation under `val/`, etc.).
+If your framework has stable callback hooks, use [`alidade-callbacks`](https://github.com/alidade-ml/alidade-callbacks) — Composer, Lightning, and HF Trainer get framework integrations; raw loops get the `Run` context manager. The library is ~100 lines of boilerplate per framework, and you avoid drift on conventions like the metric prefix (validation under `val/`, etc.).
 
 Roll your own only when (a) you're on a framework we don't support, or (b) you have a specific reason to keep dependencies minimal. The 10-line snippet above is the floor.
 
@@ -261,11 +261,11 @@ Roll your own only when (a) you're on a framework we don't support, or (b) you h
 
 ## Conventions to honor
 
-If you're building anything that consumes astrolabe data, lock these in:
+If you're building anything that consumes alidade data, lock these in:
 
 ### Tag schema (durable across versions)
 
-- `astrolabe.experiment` — string, the astrolabe experiment name
+- `astrolabe.experiment` — string, the alidade experiment name
 - `astrolabe.version` — string of shape `v<N>` where N is the submit count
 - `astrolabe.submit_id` — string, UUID-shaped
 - `astrolabe.user` — string, submitter identity (no enforced format; typically a username)
@@ -273,7 +273,7 @@ If you're building anything that consumes astrolabe data, lock these in:
 
 ### Metric namespace
 
-Astrolabe-callbacks routes metrics into three top-level namespaces:
+Alidade-callbacks routes metrics into three top-level namespaces:
 
 - `train/<name>` — per-batch / per-step training metrics (on the training run)
 - `val/<name>` — during-training validation metrics (on the training run; Training tab)
@@ -282,7 +282,7 @@ Astrolabe-callbacks routes metrics into three top-level namespaces:
 
 User-named metrics pass through unchanged. `MaskedLanguagePerplexity`, `throughput/samples_per_sec`, custom names — no rewriting.
 
-> **Legacy note**: pre-v1.0.0 `astrolabe-callbacks` emitted validation metrics under `eval/<name>` instead of `val/<name>`. Existing production Aim runs keep their `eval/*` names — they still chart correctly on the Training tab, they just sit under a deprecated prefix. The `eval/<task_set>/<metric>` shape (three segments, task_set required) is the v1.7-onwards post-training-eval pattern.
+> **Legacy note**: pre-v1.0.0 `alidade-callbacks` emitted validation metrics under `eval/<name>` instead of `val/<name>`. Existing production Aim runs keep their `eval/*` names — they still chart correctly on the Training tab, they just sit under a deprecated prefix. The `eval/<task_set>/<metric>` shape (three segments, task_set required) is the v1.7-onwards post-training-eval pattern.
 
 ### Run name resolution order
 
@@ -304,6 +304,6 @@ Things we deliberately don't surface, and why:
 - **Image / distribution / audio rendering in this dashboard.** Aim already handles these well; competing with Aim's UI for the rich types isn't worth the engineering cost or the divergence risk. Use Lane 2 (Aim directly) or Aim's own Web UI.
 - **Per-user auth.** Single-tenant trusted-network deployment by design. If you need per-user filtering, gate at the network layer or build it into your custom UI.
 - **Push / streaming.** Polling matches our research-team usage. We'll revisit if a real workflow demands it.
-- **Mutation API.** Run lifecycle is owned by `astrolabe submit` / `stop` / state-file mutations on the NUC. Exposing mutation through this API would create two paths to the same state, and we don't want the consistency story.
+- **Mutation API.** Run lifecycle is owned by `alidade submit` / `stop` / state-file mutations on the NUC. Exposing mutation through this API would create two paths to the same state, and we don't want the consistency story.
 
 We expect to revisit these around v3, when external usage signals what's actually load-bearing for users we don't already know. If you hit a wall, the cleanest signal is to file an issue describing what you tried to build and where you got stuck — that's the data that decides whether something becomes first-class.

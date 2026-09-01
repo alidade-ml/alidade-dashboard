@@ -1,6 +1,6 @@
 # The engine↔dashboard contract
 
-astrolabe's `contract.py` is the source of truth for the `astrolabe.*` tag
+alidade's `contract.py` is the source of truth for the `alidade.*` tag
 names. The hub types them into Go source as string literals, and until
 EXAMPLES-1.05 nothing checked they agreed.
 
@@ -11,7 +11,7 @@ empty list, which is indistinguishable from "nobody logged any".
 
 | surface | guard | catches | does not catch |
 |---|---|---|---|
-| `astrolabe.*` tag names | `server/api/contract_test.go` | a Go literal disagreeing with the vendored `contract.py` | the engine moving on after the last re-vendor |
+| `alidade.*` tag names | `server/api/contract_test.go` | a Go literal disagreeing with the vendored `contract.py` | the engine moving on after the last re-vendor |
 | Aim's object wire format | `server/api/aim_contract_test.go` (`-tags contract`) | Aim changing its encoding | anything, unless someone runs it |
 
 Both limits are real and neither is hidden behind a green checkmark.
@@ -26,18 +26,18 @@ moving the goalpost under a wrong Go literal.
 Re-vendor when the engine's contract changes:
 
 ```bash
-tools/vendor-contract.sh [path-to-astrolabe-checkout]
+tools/vendor-contract.sh [path-to-alidade-checkout]
 (cd server && go test ./api/ -run TestContract)
 ```
 
-`TestContractGuardCoversEveryAstrolabeLiteralInSource` scans the package for
-`"astrolabe.*"` literals and fails on any that is not in the guard table. Without
+`TestContractGuardCoversEveryAlidadeLiteralInSource` scans the package for
+`"alidade.*"` literals and fails on any that is not in the guard table. Without
 it, adding a new tag to Go would leave it unguarded while the suite stayed green
 — which is the failure this file exists to remove.
 
 ### Why vendored rather than read live
 
-Parsing `contract.py` from a sibling astrolabe checkout would catch drift
+Parsing `contract.py` from a sibling alidade checkout would catch drift
 immediately, and would need a checkout at a guessed path that a fresh clone does
 not have — so `go test ./...` would pass by skipping. Vendoring is self-contained
 and goes stale silently. That is the same trade the callbacks repo already made,
@@ -69,7 +69,7 @@ only that our code is self-consistent with itself.
 
 **Run it when bumping the `aim` dependency.** The hub has no CI, so nothing runs
 it on a schedule — that is a stated limit, not an oversight. If the hub gains CI
-this belongs on the nightly pattern astrolabe already uses for `pytest -m contract`.
+this belongs on the nightly pattern alidade already uses for `pytest -m contract`.
 
 ### One thing it documents by needing it
 
