@@ -69,7 +69,7 @@ describe("the favicon each palette points at", () => {
 
 describe("storage key", () => {
   it("does not collide with the theme key", () => {
-    assert.notEqual(PALETTE_STORAGE_KEY, "astrolabe-theme");
+    assert.notEqual(PALETTE_STORAGE_KEY, "alidade-theme");
   });
 });
 
@@ -77,7 +77,7 @@ describe("a storage event from another tab", () => {
   it("ignores keys that are not the palette", () => {
     // Both providers listen on the same window. Reacting to the theme key would
     // reset the palette to the default every time someone toggled dark mode.
-    for (const key of ["astrolabe-theme", "", null, "astrolabe-palette-old"]) {
+    for (const key of ["alidade-theme", "", null, "alidade-palette-old"]) {
       assert.equal(paletteFromStorageEvent(key, "brass"), null, `reacted to ${key}`);
     }
   });

@@ -27,7 +27,7 @@ package api
 // HONEST LIMIT: the hub has no CI, so nothing runs this on a schedule. It is a
 // command a human runs when bumping Aim. Written down rather than left implied,
 // because a guard nobody runs and a guard that cannot fail are the same guard.
-// If the hub gains CI, this belongs on the same nightly pattern astrolabe uses
+// If the hub gains CI, this belongs on the same nightly pattern alidade uses
 // for `pytest -m contract`.
 
 import (
@@ -132,7 +132,7 @@ func writeSampleRunViaSDK(t *testing.T, payload string) string {
 	return runPython(t, `
 from aim import Run, Text
 run = Run(repo=REPO, experiment="contract-test")
-run["astrolabe.kind"] = "sample"
+run["alidade.kind"] = "sample"
 run.track(Text(`+pyQuote(payload)+`), name="sample/contract/output", step=0)
 print(run.hash)
 run.close()
@@ -145,7 +145,7 @@ func writeImageRunViaSDK(t *testing.T) string {
 import numpy as np
 from aim import Image, Run
 run = Run(repo=REPO, experiment="contract-test")
-run["astrolabe.kind"] = "sample"
+run["alidade.kind"] = "sample"
 run.track(Image(np.full((8, 8, 3), 90, dtype=np.uint8)),
           name="sample/contract-img/output", step=0)
 print(run.hash)
@@ -266,7 +266,7 @@ func writeKindedRunViaSDK(t *testing.T, experiment, kind string) string {
 	t.Helper()
 	setKind := ""
 	if kind != "" {
-		setKind = `run["astrolabe.kind"] = ` + pyQuote(kind)
+		setKind = `run["alidade.kind"] = ` + pyQuote(kind)
 	}
 	// runPython indexes what it wrote; a run this server has not indexed is
 	// invisible to search, which would make every case here pass for the

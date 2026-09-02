@@ -7,9 +7,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// StateReader reads astrolabe submit state from the SQLite database that
-// astrolabe v1.8+ writes (see ``plans/state-files-to-sqlite.md`` in the
-// astrolabe repo). Replaces the prior directory-of-JSON-files reader.
+// StateReader reads alidade submit state from the SQLite database that
+// alidade v1.8+ writes (see ``plans/state-files-to-sqlite.md`` in the
+// alidade repo). Replaces the prior directory-of-JSON-files reader.
 //
 // The exported method set (``ListAll``, ``GetIncludes``, ``GetState``)
 // and the returned ``ExperimentState`` shape are unchanged so the
@@ -20,7 +20,7 @@ type StateReader struct {
 	db *sql.DB
 }
 
-// NewStateReader opens (read-only) the astrolabe state DB at ``dbPath``.
+// NewStateReader opens (read-only) the alidade state DB at ``dbPath``.
 //
 // The connection string sets read-only mode + WAL so the dashboard can
 // read while the engine writes from a different process without lock

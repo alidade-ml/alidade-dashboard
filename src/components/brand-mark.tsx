@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 /**
- * The astrolabe mark, inlined.
+ * The alidade mark, inlined.
  *
  * Inlined rather than an <img> or background-image because the geometry reads
  * --astro-mark-ink and --astro-accent, and an <img> has no cascade — it would sit
@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
  *
  * One drawing at every size, minimum 16px. The embroidery cut is a separate
  * asset and is not used in the product. Geometry and draw order are specified in
- * docs/brand.md (astrolabe repo); the numbers are load-bearing, so change them
+ * docs/brand.md (alidade repo); the numbers are load-bearing, so change them
  * there first.
  */
 export function BrandMark({ className }: { className?: string }) {
@@ -23,7 +23,7 @@ export function BrandMark({ className }: { className?: string }) {
     <svg
       viewBox="0 0 64 64"
       role="img"
-      aria-label="Astrolabe"
+      aria-label="Alidade"
       strokeLinejoin="round"
       className={cn("h-6 w-6", className)}
     >
@@ -132,5 +132,5 @@ export function BrandMark({ className }: { className?: string }) {
  * without the mark standing in for a letter.
  */
 export function Wordmark({ className }: { className?: string }) {
-  return <span className={cn("astro-wordmark", className)}>Astrolabe</span>;
+  return <span className={cn("astro-wordmark", className)}>Alidade</span>;
 }

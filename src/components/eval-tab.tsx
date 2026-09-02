@@ -302,7 +302,7 @@ export function EvalTab({ runs, currentRunHash, runColors, hiddenRunHashes }: Ev
       <div className="rounded-lg border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground">
         No eval data for these runs yet. Eval data appears here once a researcher calls{" "}
         <code className="rounded bg-background/60 px-1 py-0.5 font-mono">
-          astrolabe.eval_results.log_eval_table(...)
+          alidade.eval_results.log_eval_table(...)
         </code>{" "}
         against one of these run hashes.
       </div>

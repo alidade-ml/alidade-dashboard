@@ -59,7 +59,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
  *
  * The dashboard truncates Aim run hashes to 7 chars by default
  * (e.g. ``add5015``) for visual density, but operators using
- * ``astrolabe submit --include=<hash>`` need the full 24-char value.
+ * ``alidade submit --include=<hash>`` need the full 24-char value.
  * Clicking the displayed hash writes the full hash to the clipboard
  * and flips the icon to a checkmark for ~1.5s as confirmation.
  *

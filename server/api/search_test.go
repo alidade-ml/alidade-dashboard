@@ -12,7 +12,7 @@ package api
 //   * A query matching nothing returns a body with no runs in it, NOT
 //     every run — verified against a live server before this was built.
 //   * Each run carries props (name, archived, creation_time, and
-//     experiment one level deeper) and params (the astrolabe.* tags).
+//     experiment one level deeper) and params (the alidade.* tags).
 //
 // The fixtures are real bodies captured off a live `aim up` serving 15
 // runs across two experiments, three of them tagged kind=sample.
@@ -133,7 +133,7 @@ func TestQueryEscapesValues(t *testing.T) {
 		t.Errorf("quote was not escaped: %s", got)
 	}
 
-	got = QueryByTag("astrolabe.kind", `back\slash`)
+	got = QueryByTag("alidade.kind", `back\slash`)
 	if !strings.Contains(got, `back\\slash`) {
 		t.Errorf("backslash was not escaped: %s", got)
 	}
@@ -143,9 +143,9 @@ func TestQueryByTagsIsDeterministic(t *testing.T) {
 	// Built from a map, so without an explicit sort two identical
 	// requests produce different strings.
 	pairs := map[string]string{
-		"astrolabe.kind":           "sample",
-		"astrolabe.model_run_hash": "abc",
-		"astrolabe.sample_set":     "faces",
+		"alidade.kind":           "sample",
+		"alidade.model_run_hash": "abc",
+		"alidade.sample_set":     "faces",
 	}
 	first := QueryByTags(pairs)
 	for i := 0; i < 20; i++ {
@@ -193,7 +193,7 @@ func TestSearchSendsTheQueryUrlEncoded(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	want := QueryByTag("astrolabe.kind", "sample")
+	want := QueryByTag("alidade.kind", "sample")
 	if _, err := NewAimClient(srv.URL).SearchRuns(want); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestSearchRunsEndToEndOverAFakeServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	runs, err := NewAimClient(srv.URL).SearchRuns(QueryByTag("astrolabe.kind", "sample"))
+	runs, err := NewAimClient(srv.URL).SearchRuns(QueryByTag("alidade.kind", "sample"))
 	if err != nil {
 		t.Fatal(err)
 	}

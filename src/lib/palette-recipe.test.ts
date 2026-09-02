@@ -1,5 +1,5 @@
 /**
- * Tests for the astrolabe colour recipe.
+ * Tests for the alidade colour recipe.
  *
  * The load-bearing one is the first: docs/brand.md publishes paper, ink and
  * accent for five presets across two modes, so 30 values grade this module

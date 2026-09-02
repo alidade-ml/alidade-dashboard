@@ -1,4 +1,4 @@
-// Astrolabe API types — mirror the Go backend contract exactly.
+// Alidade API types — mirror the Go backend contract exactly.
 
 export type ExperimentState =
   | "PENDING"
@@ -40,7 +40,7 @@ export interface Experiment {
    */
   linear_doc_url?: string | null;
   /**
-   * Submitter identity (OS username from astrolabe.user / ExperimentRecord.
+   * Submitter identity (OS username from alidade.user / ExperimentRecord.
    * submitted_by). Empty string for legacy experiments that pre-date v1.2.1;
    * the home-page Submitter filter buckets those under "unknown".
    */
@@ -97,7 +97,7 @@ export interface Run {
    */
   submitted_by?: string;
   /**
-   * astrolabe.kind. Absent or "training" means a model this experiment
+   * alidade.kind. Absent or "training" means a model this experiment
    * trained; anything else is a model that arrived some other way (an
    * imported checkpoint, say). Use isTrainingRun rather than comparing
    * this directly, so an unfamiliar kind is never treated as training.

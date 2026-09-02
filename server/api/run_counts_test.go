@@ -140,7 +140,7 @@ func TestRunCountsExcludeArchivedRuns(t *testing.T) {
 	}
 }
 
-// TestRunCountsIncludeUntaggedRuns covers runs that predate astrolabe.kind.
+// TestRunCountsIncludeUntaggedRuns covers runs that predate alidade.kind.
 // A query that dropped them would undercount every old experiment, and the
 // undercount would look like data loss rather than a filter.
 func TestRunCountsIncludeUntaggedRuns(t *testing.T) {
@@ -299,8 +299,8 @@ func TestHandleRunsKeepsItsDocumentedShape(t *testing.T) {
 		{experiment: "bert-pretrain", hash: "a1b2c3", name: "bert-tiny",
 			creationTime: 1745321780.5, endTime: 1745367020.3,
 			tags: map[string]any{
-				TagKind: "training", "astrolabe.version": "v3",
-				TagSubmitID: "abc-123-def", "astrolabe.user": "alice",
+				TagKind: "training", "alidade.version": "v3",
+				TagSubmitID: "abc-123-def", "alidade.user": "alice",
 			}},
 	}), nil, nil)
 

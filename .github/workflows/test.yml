@@ -1,4 +1,4 @@
-# Dashboard CI — Gate A (PR CI green) per astrolabe/plans/testing-and-deploy.md
+# Dashboard CI — Gate A (PR CI green) per alidade/plans/testing-and-deploy.md
 #
 # Catches the bulk of regressions before merge. Runs both halves of
 # the dashboard:

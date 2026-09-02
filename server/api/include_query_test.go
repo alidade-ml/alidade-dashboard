@@ -31,7 +31,7 @@ type fakeRunRow struct {
 	experiment   string
 	creationTime float64
 	archived     bool
-	// Empty means the run carries no astrolabe.version tag, which is what
+	// Empty means the run carries no alidade.version tag, which is what
 	// a repo predating version tagging looks like.
 	version string
 }
@@ -48,7 +48,7 @@ func encodeSearchBody(rows []fakeRunRow) []byte {
 		add(encPath(r.hash, "props", "creation_time"), encVal(r.creationTime))
 		add(encPath(r.hash, "props", "experiment", "name"), encVal(r.experiment))
 		if r.version != "" {
-			add(encPath(r.hash, "params", "astrolabe.version"), encVal(r.version))
+			add(encPath(r.hash, "params", "alidade.version"), encVal(r.version))
 		}
 	}
 	// A streaming marker, so every test exercises the filter that drops it.

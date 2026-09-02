@@ -3,7 +3,7 @@ package api
 // Sample discovery for the Examples tab.
 //
 // ``alidade_callbacks.log_samples`` writes one Aim run per batch of
-// qualitative outputs, tagged with astrolabe.kind="sample", the
+// qualitative outputs, tagged with alidade.kind="sample", the
 // researcher's sample_set label, and the model run the samples came
 // from. This file answers "which batches exist for this run?" — the
 // payloads themselves are fetched separately, so a tab can render its
@@ -25,12 +25,12 @@ import (
 	"time"
 )
 
-// Contract literals. These are copied from astrolabe's contract.py and
+// Contract literals. These are copied from alidade's contract.py and
 // checked by nothing today. A rename engine-side makes this endpoint
 // return an empty list, which is indistinguishable from "nobody logged
 // any samples".
 const (
-	// SampleKind is astrolabe.kind on a run written by log_samples.
+	// SampleKind is alidade.kind on a run written by log_samples.
 	SampleKind = "sample"
 	// SampleSeqPrefix begins every sample sequence name:
 	// sample/<set>/input and sample/<set>/output.
@@ -54,8 +54,8 @@ type SampleManifestEntry struct {
 // GET /api/runs/{model_run_hash}/samples
 // → [{ aim_run_hash, sample_set, model_run_hash, creation_time }, ...]
 //
-// Discovery is by tag: astrolabe.kind == "sample" AND
-// astrolabe.model_run_hash == <hash>. Multiple batches sharing a
+// Discovery is by tag: alidade.kind == "sample" AND
+// alidade.model_run_hash == <hash>. Multiple batches sharing a
 // sample_set collapse to the newest by creation_time.
 //
 // Scoped to the model run's own Aim experiment. log_samples files a
@@ -117,7 +117,7 @@ func (h *Handler) HandleRunSamples(w http.ResponseWriter, r *http.Request) {
 		if run.Archived {
 			continue
 		}
-		tags := AstrolabeTagsFromParams(run.Params)
+		tags := AlidadeTagsFromParams(run.Params)
 		// Re-check what the query asked for — see HandleRunEvals.
 		if tags.Kind != SampleKind || tags.ModelRunHash != modelRunHash {
 			continue

@@ -419,7 +419,7 @@ function ExperimentBody({
     const set = new Set<string>();
     for (const r of runsState.data ?? []) {
       for (const m of r.metrics ?? []) {
-        // wall_time is logged by the AstrolabeLogger as a way to map
+        // wall_time is logged by the AlidadeLogger as a way to map
         // step → elapsed-seconds for the X-axis "Wall time" toggle.
         // It's not a metric researchers care to plot on its own; hide
         // it from the metric list (and therefore the chart panel).

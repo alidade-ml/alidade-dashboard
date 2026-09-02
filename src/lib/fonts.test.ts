@@ -87,14 +87,14 @@ describe("fonts are self-hosted", () => {
     // The crossbar-less A is a modified subset and must never be confused with
     // upstream Ysabeau, nor leak into body text.
     const fonts = read("src", "brand", "fonts.css");
-    assert.match(fonts, /font-family:\s*"Astrolabe Wordmark"/);
-    assert.match(fonts, /url\(\.\/fonts\/astrolabe-wordmark\.woff2\)/);
+    assert.match(fonts, /font-family:\s*"Alidade Wordmark"/);
+    assert.match(fonts, /url\(\.\/fonts\/alidade-wordmark\.woff2\)/);
 
     const styles = read("src", "styles.css");
     const display = styles.slice(styles.indexOf("--font-display:"));
     assert.doesNotMatch(
       display.slice(0, display.indexOf(";")),
-      /Astrolabe Wordmark/,
+      /Alidade Wordmark/,
       "the wordmark face leaked into --font-display; body text would lose its crossbars",
     );
   });
@@ -107,7 +107,7 @@ describe("fonts are self-hosted", () => {
     for (const family of ["ysabeau", "inter", "jetbrains-mono"]) {
       assert.ok(text.includes(`@fontsource/${family}`), `no licence for ${family}`);
     }
-    assert.ok(text.includes("Astrolabe Wordmark"), "no licence for the modified cut");
+    assert.ok(text.includes("Alidade Wordmark"), "no licence for the modified cut");
   });
 
   it("loads no font from index.html", () => {

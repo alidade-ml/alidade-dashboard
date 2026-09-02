@@ -27,7 +27,7 @@ function NotFoundComponent() {
 
 // SPA mode — no shellComponent (no `<html>` or `<head>` wrapping; that's
 // in /index.html) and no `head:` config (TanStack Router-only doesn't
-// have head metadata). Tab title is the static "Astrolabe" set in
+// have head metadata). Tab title is the static "Alidade" set in
 // /index.html; no per-route override.
 export const Route = createRootRoute({
   component: RootComponent,

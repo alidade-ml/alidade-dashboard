@@ -59,12 +59,12 @@ func TestExperimentRunsExcludesEvalRuns(t *testing.T) {
 	// table and an empty series in the chart legend.
 	aim := fakeAim(t, []fakeRun{
 		{experiment: "latent-bert", hash: "train-1", name: "LatentBERT",
-			tags: map[string]any{"astrolabe.version": "v1"}},
+			tags: map[string]any{"alidade.version": "v1"}},
 		{experiment: "latent-bert", hash: "eval-1", name: "glue-eval",
 			tags: map[string]any{
-				"astrolabe.kind":           "eval",
-				"astrolabe.task_set":       "glue",
-				"astrolabe.model_run_hash": "train-1",
+				"alidade.kind":           "eval",
+				"alidade.task_set":       "glue",
+				"alidade.model_run_hash": "train-1",
 			}},
 	})
 	got := getExperimentRuns(t, makeHandlerWithAim(t, aim), "latent-bert")
@@ -79,8 +79,8 @@ func TestExperimentRunsExcludesEvalRuns(t *testing.T) {
 
 func TestExperimentRunsExcludesMetadataRuns(t *testing.T) {
 	aim := fakeAim(t, []fakeRun{
-		{experiment: "exp", hash: "train-1", tags: map[string]any{"astrolabe.version": "v1"}},
-		{experiment: "exp", hash: "cost-1", tags: map[string]any{"astrolabe.kind": "metadata"}},
+		{experiment: "exp", hash: "train-1", tags: map[string]any{"alidade.version": "v1"}},
+		{experiment: "exp", hash: "cost-1", tags: map[string]any{"alidade.kind": "metadata"}},
 	})
 	got := getExperimentRuns(t, makeHandlerWithAim(t, aim), "exp")
 
@@ -98,9 +98,9 @@ func TestExperimentRunsSurfacesKindSoUnknownKindsAreNotTraining(t *testing.T) {
 	// to the client, where a new kind is visibly not training rather
 	// than silently counted as one.
 	aim := fakeAim(t, []fakeRun{
-		{experiment: "exp", hash: "train-1", tags: map[string]any{"astrolabe.version": "v1"}},
+		{experiment: "exp", hash: "train-1", tags: map[string]any{"alidade.version": "v1"}},
 		{experiment: "exp", hash: "import-1", name: "roberta-base",
-			tags: map[string]any{"astrolabe.kind": "external_checkpoint"}},
+			tags: map[string]any{"alidade.kind": "external_checkpoint"}},
 	})
 	got := getExperimentRuns(t, makeHandlerWithAim(t, aim), "exp")
 
@@ -124,12 +124,12 @@ func TestExperimentRunsIncludesAModelEvaluatedFromAnotherExperiment(t *testing.T
 	// the evaluated model is resolved across the experiment boundary.
 	aim := fakeAim(t, []fakeRun{
 		{experiment: "latent-bert", hash: "model-1", name: "LatentBERT",
-			tags: map[string]any{"astrolabe.version": "v1"}},
+			tags: map[string]any{"alidade.version": "v1"}},
 		{experiment: "glue-sweep", hash: "eval-1",
 			tags: map[string]any{
-				"astrolabe.kind":           "eval",
-				"astrolabe.task_set":       "glue",
-				"astrolabe.model_run_hash": "model-1",
+				"alidade.kind":           "eval",
+				"alidade.task_set":       "glue",
+				"alidade.model_run_hash": "model-1",
 			}},
 	})
 	got := getExperimentRuns(t, makeHandlerWithAim(t, aim), "glue-sweep")
@@ -154,19 +154,19 @@ func TestExperimentRunsUnionsProducedAndEvaluatedRatherThanFallingBack(t *testin
 	// are no runs) silently drops one of them.
 	aim := fakeAim(t, []fakeRun{
 		{experiment: "mixed", hash: "own-model", name: "our-model",
-			tags: map[string]any{"astrolabe.version": "v1"}},
+			tags: map[string]any{"alidade.version": "v1"}},
 		{experiment: "mixed", hash: "eval-own",
 			tags: map[string]any{
-				"astrolabe.kind": "eval", "astrolabe.task_set": "glue",
-				"astrolabe.model_run_hash": "own-model",
+				"alidade.kind": "eval", "alidade.task_set": "glue",
+				"alidade.model_run_hash": "own-model",
 			}},
 		{experiment: "mixed", hash: "eval-foreign",
 			tags: map[string]any{
-				"astrolabe.kind": "eval", "astrolabe.task_set": "glue",
-				"astrolabe.model_run_hash": "foreign-model",
+				"alidade.kind": "eval", "alidade.task_set": "glue",
+				"alidade.model_run_hash": "foreign-model",
 			}},
 		{experiment: "hf-imports", hash: "foreign-model", name: "t5-base",
-			tags: map[string]any{"astrolabe.kind": "external_checkpoint"}},
+			tags: map[string]any{"alidade.kind": "external_checkpoint"}},
 	})
 	got := getExperimentRuns(t, makeHandlerWithAim(t, aim), "mixed")
 
@@ -183,11 +183,11 @@ func TestExperimentRunsDoesNotDuplicateAModelItProducedAndEvaluated(t *testing.T
 	// twice, once per half of the union.
 	aim := fakeAim(t, []fakeRun{
 		{experiment: "exp", hash: "model-1", name: "our-model",
-			tags: map[string]any{"astrolabe.version": "v1"}},
+			tags: map[string]any{"alidade.version": "v1"}},
 		{experiment: "exp", hash: "eval-1",
 			tags: map[string]any{
-				"astrolabe.kind": "eval", "astrolabe.task_set": "glue",
-				"astrolabe.model_run_hash": "model-1",
+				"alidade.kind": "eval", "alidade.task_set": "glue",
+				"alidade.model_run_hash": "model-1",
 			}},
 	})
 	got := getExperimentRuns(t, makeHandlerWithAim(t, aim), "exp")
@@ -212,16 +212,16 @@ func TestExperimentRunsTwoTaskSetsOnOneModelYieldOneRow(t *testing.T) {
 	aim := fakeAim(t, []fakeRun{
 		{experiment: "bench", hash: "eval-glue",
 			tags: map[string]any{
-				"astrolabe.kind": "eval", "astrolabe.task_set": "glue",
-				"astrolabe.model_run_hash": "model-1",
+				"alidade.kind": "eval", "alidade.task_set": "glue",
+				"alidade.model_run_hash": "model-1",
 			}},
 		{experiment: "bench", hash: "eval-mmlu",
 			tags: map[string]any{
-				"astrolabe.kind": "eval", "astrolabe.task_set": "mmlu",
-				"astrolabe.model_run_hash": "model-1",
+				"alidade.kind": "eval", "alidade.task_set": "mmlu",
+				"alidade.model_run_hash": "model-1",
 			}},
 		{experiment: "elsewhere", hash: "model-1", name: "roberta-base",
-			tags: map[string]any{"astrolabe.kind": "external_checkpoint"}},
+			tags: map[string]any{"alidade.kind": "external_checkpoint"}},
 	})
 	got := getExperimentRuns(t, makeHandlerWithAim(t, aim), "bench")
 
@@ -239,8 +239,8 @@ func TestExperimentRunsSkipsAnEvaluatedModelMissingFromAim(t *testing.T) {
 	aim := fakeAim(t, []fakeRun{
 		{experiment: "bench", hash: "eval-1",
 			tags: map[string]any{
-				"astrolabe.kind": "eval", "astrolabe.task_set": "glue",
-				"astrolabe.model_run_hash": "vanished",
+				"alidade.kind": "eval", "alidade.task_set": "glue",
+				"alidade.model_run_hash": "vanished",
 			}},
 	})
 	got := getExperimentRuns(t, makeHandlerWithAim(t, aim), "bench")
@@ -255,7 +255,7 @@ func TestExperimentRunsIgnoresAnEvalWithNoModel(t *testing.T) {
 	// It must not produce a phantom row keyed on the empty string.
 	aim := fakeAim(t, []fakeRun{
 		{experiment: "bench", hash: "eval-1",
-			tags: map[string]any{"astrolabe.kind": "eval", "astrolabe.task_set": "glue"}},
+			tags: map[string]any{"alidade.kind": "eval", "alidade.task_set": "glue"}},
 	})
 	got := getExperimentRuns(t, makeHandlerWithAim(t, aim), "bench")
 
@@ -273,11 +273,11 @@ func TestEvaluatedModelIsNotLabelledWithTheRequestingExperiment(t *testing.T) {
 	aim := fakeAim(t, []fakeRun{
 		{experiment: "glue-sweep", hash: "eval-1",
 			tags: map[string]any{
-				"astrolabe.kind": "eval", "astrolabe.task_set": "glue",
-				"astrolabe.model_run_hash": "model-1",
+				"alidade.kind": "eval", "alidade.task_set": "glue",
+				"alidade.model_run_hash": "model-1",
 			}},
 		{experiment: "latent-bert", hash: "model-1", name: "Run: model-1",
-			tags: map[string]any{"astrolabe.kind": "external_checkpoint"}},
+			tags: map[string]any{"alidade.kind": "external_checkpoint"}},
 	})
 	got := getExperimentRuns(t, makeHandlerWithAim(t, aim), "glue-sweep")
 

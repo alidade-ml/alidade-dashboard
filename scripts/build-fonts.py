@@ -6,7 +6,7 @@ Cuts the wordmark face from Ysabeau.
 Two changes to the upstream font, both permitted by the OFL (Ysabeau declares no
 Reserved Font Name):
 
-  * subset to the letters of ASTROLABE, so the face is a few kB rather than 30
+  * subset to the letters of ALIDADE, so the face is a few kB rather than 30
   * delete the crossbar from A, leaving a bare chevron
 
 The crossbar is its own contour, so removing it is a delete rather than a
@@ -27,12 +27,12 @@ from fontTools.subset import Subsetter
 from fontTools.ttLib import TTFont
 from fontTools.ttLib.tables._g_l_y_f import GlyphCoordinates
 
-WORD = "ASTROLABE"
-FAMILY = "Astrolabe Wordmark"
+WORD = "ALIDADE"
+FAMILY = "Alidade Wordmark"
 SRC = pathlib.Path("node_modules/@fontsource/ysabeau/files/ysabeau-latin-500-normal.woff2")
-OUT = pathlib.Path("src/brand/fonts/astrolabe-wordmark.woff2")
+OUT = pathlib.Path("src/brand/fonts/alidade-wordmark.woff2")
 LICENSE_SRC = pathlib.Path("node_modules/@fontsource/ysabeau/LICENSE")
-LICENSE_OUT = pathlib.Path("src/brand/fonts/astrolabe-wordmark.LICENSE.txt")
+LICENSE_OUT = pathlib.Path("src/brand/fonts/alidade-wordmark.LICENSE.txt")
 
 # OFL section 2 requires the licence to travel with every copy of the font, so
 # it has to reach the built bundle. public/ is copied verbatim into dist/.
@@ -77,7 +77,7 @@ def _rename(font: TTFont, family: str) -> None:
 
 def _collect_licenses() -> None:
     parts = [
-        "Fonts bundled with the astrolabe dashboard.\n",
+        "Fonts bundled with the alidade dashboard.\n",
         "Every face below is licensed under the SIL Open Font License 1.1,\n"
         "which permits commercial use, modification and redistribution.\n",
     ]
@@ -110,7 +110,7 @@ def main() -> None:
     # OFL section 2: every copy must carry the licence.
     LICENSE_OUT.write_text(
         f"{FAMILY} is a modified subset of Ysabeau.\n"
-        "Changes: subset to the letters of ASTROLABE; the crossbar removed from A.\n"
+        "Changes: subset to the letters of ALIDADE; the crossbar removed from A.\n"
         "Renamed so it is not mistaken for the original. The Ysabeau authors do\n"
         "not endorse this modification.\n\n" + LICENSE_SRC.read_text()
     )

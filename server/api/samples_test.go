@@ -6,7 +6,7 @@ package api
 // from the implementation:
 //
 //   * Returns the sample Aim runs logged against a model run, keyed by
-//     astrolabe.kind == "sample" AND astrolabe.model_run_hash == <hash>.
+//     alidade.kind == "sample" AND alidade.model_run_hash == <hash>.
 //   * Dedups by sample_set keeping the newest by creation_time.
 //   * Drops batches with no sample_set — a block cannot be labelled.
 //   * Returns [] and not null when a run has no samples, which is the
@@ -46,7 +46,7 @@ func makeModelRun(hash string) fakeRun {
 		experiment:   fixtureExperiment,
 		hash:         hash,
 		creationTime: unixSecs(time.Now().Add(-3 * time.Hour)),
-		tags:         map[string]any{"astrolabe.kind": "training"},
+		tags:         map[string]any{"alidade.kind": "training"},
 	}
 }
 
@@ -57,9 +57,9 @@ func makeSampleFakeRun(hash, sampleSet, modelRunHash string, createdAt time.Time
 		creationTime: unixSecs(createdAt),
 		endTime:      unixSecs(createdAt.Add(time.Minute)),
 		tags: map[string]any{
-			"astrolabe.kind":           "sample",
-			"astrolabe.sample_set":     sampleSet,
-			"astrolabe.model_run_hash": modelRunHash,
+			"alidade.kind":           "sample",
+			"alidade.sample_set":     sampleSet,
+			"alidade.model_run_hash": modelRunHash,
 		},
 	}
 }
@@ -146,21 +146,21 @@ func TestSamplesIgnoreNonSampleRuns(t *testing.T) {
 		makeSampleFakeRun("s1", "faces", "model-a", now),
 		{
 			experiment: "my-experiment", hash: "t1", creationTime: unixSecs(now),
-			tags: map[string]any{"astrolabe.model_run_hash": "model-a"},
+			tags: map[string]any{"alidade.model_run_hash": "model-a"},
 		},
 		{
 			experiment: "my-experiment", hash: "m1", creationTime: unixSecs(now),
 			tags: map[string]any{
-				"astrolabe.kind":           "metadata",
-				"astrolabe.model_run_hash": "model-a",
+				"alidade.kind":           "metadata",
+				"alidade.model_run_hash": "model-a",
 			},
 		},
 		{
 			experiment: "eval/glue", hash: "e1", creationTime: unixSecs(now),
 			tags: map[string]any{
-				"astrolabe.kind":           "eval",
-				"astrolabe.task_set":       "glue",
-				"astrolabe.model_run_hash": "model-a",
+				"alidade.kind":           "eval",
+				"alidade.task_set":       "glue",
+				"alidade.model_run_hash": "model-a",
 			},
 		},
 		// Carries a sample_set but is not a sample. Without this the
@@ -170,9 +170,9 @@ func TestSamplesIgnoreNonSampleRuns(t *testing.T) {
 		{
 			experiment: "my-experiment", hash: "x1", creationTime: unixSecs(now),
 			tags: map[string]any{
-				"astrolabe.kind":           "metadata",
-				"astrolabe.sample_set":     "faces",
-				"astrolabe.model_run_hash": "model-a",
+				"alidade.kind":           "metadata",
+				"alidade.sample_set":     "faces",
+				"alidade.model_run_hash": "model-a",
 			},
 		},
 	})
@@ -186,7 +186,7 @@ func TestSamplesIgnoreNonSampleRuns(t *testing.T) {
 func TestSamplesWithoutASetAreDropped(t *testing.T) {
 	now := time.Now()
 	unlabelled := makeSampleFakeRun("s2", "", "model-a", now)
-	delete(unlabelled.tags, "astrolabe.sample_set")
+	delete(unlabelled.tags, "alidade.sample_set")
 
 	h := sampleHandler(t, []fakeRun{
 		makeSampleFakeRun("s1", "faces", "model-a", now),
@@ -217,8 +217,8 @@ func TestSamplesDedupeBySetKeepingNewest(t *testing.T) {
 }
 
 func TestSamplesReadNestedTagLayout(t *testing.T) {
-	// Aim serialises run params either flat ("astrolabe.kind") or nested
-	// under a top-level "astrolabe" mapping, depending on version. This
+	// Aim serialises run params either flat ("alidade.kind") or nested
+	// under a top-level "alidade" mapping, depending on version. This
 	// is the only test that exercises the nested branch: a SampleSet
 	// missing from the fallback's guard condition fails nothing else,
 	// and the failure is an empty tab rather than an error.
@@ -228,7 +228,7 @@ func TestSamplesReadNestedTagLayout(t *testing.T) {
 		hash:         "s1",
 		creationTime: unixSecs(now),
 		tags: map[string]any{
-			"astrolabe": map[string]any{
+			"alidade": map[string]any{
 				"kind":           "sample",
 				"sample_set":     "faces",
 				"model_run_hash": "model-a",
@@ -257,19 +257,19 @@ func TestSamplesReadNestedSetAmongFlatTags(t *testing.T) {
 		hash:         "s1",
 		creationTime: unixSecs(now),
 		tags: map[string]any{
-			"astrolabe.kind":                    "sample",
-			"astrolabe.model_run_hash":          "model-a",
-			"astrolabe.version":                 "v3",
-			"astrolabe.submit_id":               "sub-1",
-			"astrolabe.experiment":              "my-experiment",
-			"astrolabe.user":                    "nathan",
-			"astrolabe.gpu_type":                "A100",
-			"astrolabe.outcome":                 "success",
-			"astrolabe.repo":                    "orion",
-			"astrolabe.backend":                 "lambda",
-			"astrolabe.task_set":                "unused",
-			"astrolabe.gpu_rate_cents_per_hour": 110,
-			"astrolabe": map[string]any{
+			"alidade.kind":                    "sample",
+			"alidade.model_run_hash":          "model-a",
+			"alidade.version":                 "v3",
+			"alidade.submit_id":               "sub-1",
+			"alidade.experiment":              "my-experiment",
+			"alidade.user":                    "nathan",
+			"alidade.gpu_type":                "A100",
+			"alidade.outcome":                 "success",
+			"alidade.repo":                    "orion",
+			"alidade.backend":                 "lambda",
+			"alidade.task_set":                "unused",
+			"alidade.gpu_rate_cents_per_hour": 110,
+			"alidade": map[string]any{
 				"sample_set": "faces",
 			},
 		},
@@ -390,7 +390,7 @@ func TestSamplesDoNotWalkOtherExperiments(t *testing.T) {
 			experiment:   fmt.Sprintf("unrelated-%d", i),
 			hash:         fmt.Sprintf("u%d", i),
 			creationTime: unixSecs(now),
-			tags:         map[string]any{"astrolabe.kind": "training"},
+			tags:         map[string]any{"alidade.kind": "training"},
 		})
 	}
 
@@ -906,9 +906,9 @@ func TestDiscoveryDoesNotEnumerateExperiments(t *testing.T) {
 		{
 			experiment: "eval/glue", hash: "e1", creationTime: unixSecs(now),
 			tags: map[string]any{
-				"astrolabe.kind":           "eval",
-				"astrolabe.task_set":       "glue",
-				"astrolabe.model_run_hash": "model-a",
+				"alidade.kind":           "eval",
+				"alidade.task_set":       "glue",
+				"alidade.model_run_hash": "model-a",
 			},
 		},
 	}
@@ -917,7 +917,7 @@ func TestDiscoveryDoesNotEnumerateExperiments(t *testing.T) {
 			experiment:   fmt.Sprintf("unrelated-%d", i),
 			hash:         fmt.Sprintf("u%d", i),
 			creationTime: unixSecs(now),
-			tags:         map[string]any{"astrolabe.kind": "training"},
+			tags:         map[string]any{"alidade.kind": "training"},
 		})
 	}
 
@@ -1003,9 +1003,9 @@ func TestDiscoveryRechecksTagsWhenAimAnswersTooBroadly(t *testing.T) {
 		{
 			experiment: "x", hash: "not-a-sample", creationTime: unixSecs(now),
 			tags: map[string]any{
-				"astrolabe.kind":           "training",
-				"astrolabe.sample_set":     "faces",
-				"astrolabe.model_run_hash": "model-a",
+				"alidade.kind":           "training",
+				"alidade.sample_set":     "faces",
+				"alidade.model_run_hash": "model-a",
 			},
 		},
 	}
@@ -1030,15 +1030,15 @@ func TestDiscoveryRechecksTagsWhenAimAnswersTooBroadly(t *testing.T) {
 		{
 			experiment: "eval/glue", hash: "e-mine", creationTime: unixSecs(now),
 			tags: map[string]any{
-				"astrolabe.kind": "eval", "astrolabe.task_set": "glue",
-				"astrolabe.model_run_hash": "model-a",
+				"alidade.kind": "eval", "alidade.task_set": "glue",
+				"alidade.model_run_hash": "model-a",
 			},
 		},
 		{
 			experiment: "eval/squad", hash: "e-theirs", creationTime: unixSecs(now),
 			tags: map[string]any{
-				"astrolabe.kind": "eval", "astrolabe.task_set": "squad",
-				"astrolabe.model_run_hash": "model-b",
+				"alidade.kind": "eval", "alidade.task_set": "squad",
+				"alidade.model_run_hash": "model-b",
 			},
 		},
 	}

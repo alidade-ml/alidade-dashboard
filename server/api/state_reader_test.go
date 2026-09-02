@@ -86,7 +86,7 @@ func TestStateReader_ListAllShape(t *testing.T) {
 		// Child tables — verify they hydrate correctly.
 		if _, err := db.Exec(
 			`INSERT INTO git_tags (submit_id, tag) VALUES (?, ?), (?, ?)`,
-			"test-exp-a-v3", "astrolabe/exp-a/v3-active",
+			"test-exp-a-v3", "alidade/exp-a/v3-active",
 			"test-exp-a-v3", "promoted",
 		); err != nil {
 			t.Fatal(err)
@@ -135,7 +135,7 @@ func TestStateReader_ListAllShape(t *testing.T) {
 	if s.Repo != "git@github.com:org/repo.git" {
 		t.Errorf("Repo: want git@..., got %q", s.Repo)
 	}
-	if len(s.GitTags) != 2 || s.GitTags[0] != "astrolabe/exp-a/v3-active" {
+	if len(s.GitTags) != 2 || s.GitTags[0] != "alidade/exp-a/v3-active" {
 		t.Errorf("GitTags: %v", s.GitTags)
 	}
 	if len(s.IncludeRuns) != 1 || s.IncludeRuns[0] != "abc123" {

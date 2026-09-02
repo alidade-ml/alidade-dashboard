@@ -186,7 +186,7 @@ export function seedExperiments(): Experiment[] {
       version_count: s.versions,
       repo: s.name.split("/")[0],
       state_history: buildHistory(s.history, t - s.latestAgeSec * 1000, s.duration),
-      linear_doc_url: `https://linear.app/astrolabe-demo/document/exp-${slug}`,
+      linear_doc_url: `https://linear.app/alidade-demo/document/exp-${slug}`,
     };
   });
 }
@@ -390,7 +390,7 @@ const COST_SEED_SPECS: CostExperimentSpec[] = [
     versions: ["v1"],
   },
   {
-    name: "astrolabe-include-test",
+    name: "alidade-include-test",
     date: "2026-04-27",
     gpu: "gpu_1x_a10",
     state: "COMPLETED",
@@ -402,7 +402,7 @@ const COST_SEED_SPECS: CostExperimentSpec[] = [
     versions: ["v1"],
   },
   {
-    name: "astrolabe-infra-test",
+    name: "alidade-infra-test",
     date: "2026-04-27",
     gpu: "gpu_1x_a10",
     state: "COMPLETED",
@@ -417,7 +417,7 @@ const COST_SEED_SPECS: CostExperimentSpec[] = [
   // the seed. Local runs cost $0 (NUC's own GPUs aren't billed by
   // Lambda) but still consume hours and show up in submits/hours counts.
   // Mirrors a "I ran a quick debug session on the NUC's local GPU"
-  // workflow that astrolabe's `local` backend supports.
+  // workflow that alidade's `local` backend supports.
   {
     name: "local-smoke-test",
     date: "2026-05-15",
@@ -458,7 +458,7 @@ function groupByKey(spec: CostExperimentSpec, dim: CostGroupBy): string {
       return spec.backend;
     case "outcome":
       // Normalize to {success, failed, in_flight} for the breakdown axis.
-      // Astrolabe's raw outcome vocabulary is finer-grained (success,
+      // Alidade's raw outcome vocabulary is finer-grained (success,
       // failure, timeout, stopped, null) but for cost-rollup the
       // collapsed bucket matches the user's mental model — "how much did
       // we spend on runs that didn't succeed". Consistent with the
