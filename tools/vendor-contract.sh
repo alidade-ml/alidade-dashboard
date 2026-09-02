@@ -8,7 +8,7 @@
 # Usage:  tools/vendor-contract.sh [path-to-alidade-checkout]
 set -euo pipefail
 
-ENGINE="${1:-$HOME/workspace/astrolabe}"
+ENGINE="${1:-$HOME/workspace/alidade}"
 SRC="$ENGINE/alidade/contract.py"
 DEST="$(dirname "$0")/../server/api/testdata"
 
