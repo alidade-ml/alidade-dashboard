@@ -16,4 +16,4 @@ export interface ThemeCtx {
  */
 export const ThemeContext = createContext<ThemeCtx | null>(null);
 
-export const THEME_STORAGE_KEY = "astrolabe-theme";
+export const THEME_STORAGE_KEY = "alidade-theme";

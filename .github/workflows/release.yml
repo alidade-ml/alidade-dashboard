@@ -3,11 +3,11 @@
 # Triggered by `vX.Y.Z` tags. Produces three artifacts attached to the
 # GitHub release:
 #
-#   1. astrolabe_dashboard-X.Y.Z-py3-none-any.whl  (Python wheel — static bundle)
+#   1. alidade_dashboard-X.Y.Z-py3-none-any.whl  (Python wheel — static bundle)
 #   2. alidade-dashboard-X.Y.Z-linux-amd64.tar.gz (Go binary)
 #   3. SHA256SUMS                                   (sums for the above)
 #
-# `astrolabe admin dashboard install` (in the astrolabe repo) consumes
+# `alidade admin dashboard install` (in the alidade repo) consumes
 # these to deploy the dashboard onto a NUC without any local build
 # step.
 

@@ -186,7 +186,7 @@ describe("gamut handling preserves hue", () => {
 describe("the generated file is not stale", () => {
   // Only one file is checked in. The TypeScript consumers import tracePalette()
   // and cannot drift, and the wheel's copy is derived: build_hook.py wipes
-  // astrolabe_dashboard/config/ and re-copies server/config/ at build time. That
+  // alidade_dashboard/config/ and re-copies server/config/ at build time. That
   // directory is gitignored, so a test reading it would pass here and throw on a
   // fresh clone.
   it("matches what the generator would write today", () => {

@@ -3,7 +3,7 @@
  *
  * One target, not two. The TypeScript consumers import tracePalette() directly
  * and cannot drift; the wheel's copy is produced by build_hook.py, which wipes
- * astrolabe_dashboard/config/ and re-copies server/config/ at build time, so it
+ * alidade_dashboard/config/ and re-copies server/config/ at build time, so it
  * is derived rather than maintained. Writing there would only dirty a staging
  * directory that is gitignored and rebuilt.
  *

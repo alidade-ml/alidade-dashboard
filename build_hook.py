@@ -1,7 +1,7 @@
-"""Hatchling build hook: stage dist/ into astrolabe_dashboard/static/.
+"""Hatchling build hook: stage dist/ into alidade_dashboard/static/.
 
 The wheel ships the contents of `dist/` (the result of `bun run
-build`) under the importable name `astrolabe_dashboard.static`. This
+build`) under the importable name `alidade_dashboard.static`. This
 hook copies dist/ into a staging dir at build time so the wheel
 includes it without keeping a duplicate of the build output checked
 into the source tree.
@@ -35,7 +35,7 @@ class StaticBundleBuildHook(BuildHookInterface):
             )
 
         # Static (from bun's vite build).
-        static_staging = root / "astrolabe_dashboard" / "static"
+        static_staging = root / "alidade_dashboard" / "static"
         if static_staging.exists():
             shutil.rmtree(static_staging)
         shutil.copytree(dist, static_staging)
@@ -51,7 +51,7 @@ class StaticBundleBuildHook(BuildHookInterface):
                 "wheel ships the colors.json config alongside the static "
                 "bundle so the Go binary has everything in one artifact."
             )
-        config_staging = root / "astrolabe_dashboard" / "config"
+        config_staging = root / "alidade_dashboard" / "config"
         if config_staging.exists():
             shutil.rmtree(config_staging)
         shutil.copytree(config_src, config_staging)
@@ -59,25 +59,25 @@ class StaticBundleBuildHook(BuildHookInterface):
         # Hatchling's wheel target requires every package to have an
         # __init__.py. Drop a minimal one so the package imports
         # cleanly; the actual content is the static + config dirs.
-        init = root / "astrolabe_dashboard" / "__init__.py"
+        init = root / "alidade_dashboard" / "__init__.py"
         if not init.exists():
             init.write_text(
-                '"""Astrolabe dashboard frontend bundle.\n\n'
-                "The package contains no Python — `astrolabe_dashboard.static` "
+                '"""Alidade dashboard frontend bundle.\n\n'
+                "The package contains no Python — `alidade_dashboard.static` "
                 "holds the built React app served by the Go dashboard binary, "
-                "and `astrolabe_dashboard.config` holds the colors.json the "
+                "and `alidade_dashboard.config` holds the colors.json the "
                 "binary reads at startup.\n"
                 '"""\n'
             )
 
         # Hatchling's source tree is set up before this hook fires, so
         # the include-glob in pyproject.toml has already been resolved
-        # against an empty astrolabe_dashboard/ tree (we just created
+        # against an empty alidade_dashboard/ tree (we just created
         # it). force_include puts the freshly-staged files into the
         # wheel directly, bypassing the include resolution that's
         # already happened.
         build_data["force_include"] = {
-            str(static_staging): "astrolabe_dashboard/static",
-            str(config_staging): "astrolabe_dashboard/config",
-            str(init): "astrolabe_dashboard/__init__.py",
+            str(static_staging): "alidade_dashboard/static",
+            str(config_staging): "alidade_dashboard/config",
+            str(init): "alidade_dashboard/__init__.py",
         }

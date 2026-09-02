@@ -162,11 +162,11 @@ func (c *AimClient) GetRunInfo(runHash string) (*RunInfo, error) {
 	return &info, nil
 }
 
-// AstrolabeTags is the set of astrolabe.* tags written by the
-// astrolabe-composer-callback. Returned by AstrolabeTagsFromParams as
+// AlidadeTags is the set of alidade.* tags written by the
+// alidade-callbacks. Returned by AlidadeTagsFromParams as
 // a struct so adding new tags doesn't require renaming a positional
 // return at every call site.
-type AstrolabeTags struct {
+type AlidadeTags struct {
 	Version        string
 	SubmitID       string
 	ExperimentName string
@@ -182,7 +182,7 @@ type AstrolabeTags struct {
 	GPUType             string
 	GPURateCentsPerHour *int
 	Outcome             string
-	// Kind discriminates engine-created metadata runs (astrolabe.kind=
+	// Kind discriminates engine-created metadata runs (alidade.kind=
 	// "metadata", carrying cost info) from composer-created training
 	// runs (kind empty or "training"). Added v1.7.5 — the cost handler
 	// reads only metadata runs; everywhere else hides them so the
@@ -203,7 +203,7 @@ type AstrolabeTags struct {
 	// equal to backfill-time for retroactively created metadata runs.
 	StartedAtISO  string
 	FinishedAtISO string
-	// TaskSet / ModelRunHash are written by astrolabe.eval_results onto
+	// TaskSet / ModelRunHash are written by alidade.eval_results onto
 	// eval runs (``Kind == "eval"``). The eval-discovery handler reads
 	// these to group sections by ``TaskSet`` and to join eval runs back
 	// to the model run they score. Empty on non-eval runs.
@@ -220,36 +220,36 @@ type AstrolabeTags struct {
 	SampleSet string
 }
 
-// AstrolabeTagsFromParams extracts the astrolabe.* tags the
-// astrolabe-composer-callback writes to an Aim run. The callback does
-// “run["astrolabe.version"] = "v3"“ etc., which Aim may serialize
-// either as a flat key (“params["astrolabe.version"]“) or nested
-// under a top-level "astrolabe" mapping (“params["astrolabe"]["version"]“)
+// AlidadeTagsFromParams extracts the alidade.* tags the
+// alidade-callbacks writes to an Aim run. The callback does
+// “run["alidade.version"] = "v3"“ etc., which Aim may serialize
+// either as a flat key (“params["alidade.version"]“) or nested
+// under a top-level "alidade" mapping (“params["alidade"]["version"]“)
 // depending on the Aim version. Try both before giving up.
 //
 // Any field may be empty if the run wasn't tagged or the params shape
 // is unexpected; callers are responsible for the legacy fallback.
-func AstrolabeTagsFromParams(params map[string]interface{}) AstrolabeTags {
+func AlidadeTagsFromParams(params map[string]interface{}) AlidadeTags {
 	if params == nil {
-		return AstrolabeTags{}
+		return AlidadeTags{}
 	}
-	tags := AstrolabeTags{
-		Version:        stringFromAny(params["astrolabe.version"]),
+	tags := AlidadeTags{
+		Version:        stringFromAny(params["alidade.version"]),
 		SubmitID:       stringFromAny(params[TagSubmitID]),
 		ExperimentName: stringFromAny(params[TagExperiment]),
-		SubmittedBy:    stringFromAny(params["astrolabe.user"]),
-		GPUType:        stringFromAny(params["astrolabe.gpu_type"]),
-		Outcome:        stringFromAny(params["astrolabe.outcome"]),
+		SubmittedBy:    stringFromAny(params["alidade.user"]),
+		GPUType:        stringFromAny(params["alidade.gpu_type"]),
+		Outcome:        stringFromAny(params["alidade.outcome"]),
 		Kind:           stringFromAny(params[TagKind]),
-		Repo:           stringFromAny(params["astrolabe.repo"]),
-		Backend:        stringFromAny(params["astrolabe.backend"]),
-		StartedAtISO:   stringFromAny(params["astrolabe.started_at_iso"]),
-		FinishedAtISO:  stringFromAny(params["astrolabe.finished_at_iso"]),
+		Repo:           stringFromAny(params["alidade.repo"]),
+		Backend:        stringFromAny(params["alidade.backend"]),
+		StartedAtISO:   stringFromAny(params["alidade.started_at_iso"]),
+		FinishedAtISO:  stringFromAny(params["alidade.finished_at_iso"]),
 		TaskSet:        stringFromAny(params[TagTaskSet]),
 		ModelRunHash:   stringFromAny(params[TagModelRunHash]),
 		SampleSet:      stringFromAny(params[TagSampleSet]),
 	}
-	if r := intFromAny(params["astrolabe.gpu_rate_cents_per_hour"]); r != nil {
+	if r := intFromAny(params["alidade.gpu_rate_cents_per_hour"]); r != nil {
 		tags.GPURateCentsPerHour = r
 	}
 
@@ -260,7 +260,7 @@ func AstrolabeTagsFromParams(params map[string]interface{}) AstrolabeTags {
 		tags.Kind == "" || tags.Repo == "" || tags.Backend == "" ||
 		tags.TaskSet == "" || tags.ModelRunHash == "" ||
 		tags.SampleSet == "" || tags.GPURateCentsPerHour == nil {
-		if nested, ok := params["astrolabe"].(map[string]interface{}); ok {
+		if nested, ok := params["alidade"].(map[string]interface{}); ok {
 			if tags.Version == "" {
 				tags.Version = stringFromAny(nested["version"])
 			}
@@ -776,15 +776,15 @@ func (c *AimClient) GetBlobs(uris []string) (map[string][]byte, error) {
 // call sites so a query is built from the same string the param reader
 // uses, and so contract_test.go has one place to check.
 const (
-	TagKind         = "astrolabe.kind"
-	TagModelRunHash = "astrolabe.model_run_hash"
-	TagSampleSet    = "astrolabe.sample_set"
-	TagTaskSet      = "astrolabe.task_set"
-	TagSubmitID     = "astrolabe.submit_id"
-	TagExperiment   = "astrolabe.experiment"
+	TagKind         = "alidade.kind"
+	TagModelRunHash = "alidade.model_run_hash"
+	TagSampleSet    = "alidade.sample_set"
+	TagTaskSet      = "alidade.task_set"
+	TagSubmitID     = "alidade.submit_id"
+	TagExperiment   = "alidade.experiment"
 )
 
-// astrolabe.kind values the hub tests against. SampleKind lives in
+// alidade.kind values the hub tests against. SampleKind lives in
 // samples.go with the sequence prefix it belongs beside.
 const (
 	KindEval     = "eval"
@@ -822,7 +822,7 @@ func QueryByTag(tag, value string) string {
 	return fmt.Sprintf("run[%s] == %s", quoteAimLiteral(tag), quoteAimLiteral(value))
 }
 
-// QueryKindNotIn builds `run['astrolabe.kind'] not in ['a','b']`.
+// QueryKindNotIn builds `run['alidade.kind'] not in ['a','b']`.
 //
 // On a repo whose runs are indexed this matches exactly the complement. On one
 // whose runs are not, it matches everything: a run with no indexed params
@@ -924,7 +924,7 @@ func quoteAimLiteral(s string) string {
 // q is Aim's own query language — build it with QueryByTag and friends
 // rather than by hand:
 //
-//	run['astrolabe.kind'] == 'sample'
+//	run['alidade.kind'] == 'sample'
 //	run.experiment == 'my-experiment'
 //
 // An empty result means no run matched, which is a real answer. It is

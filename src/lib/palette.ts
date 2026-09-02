@@ -1,6 +1,6 @@
 import { DEFAULT_PRESET, PRESETS, type PresetId } from "./palette-recipe.ts";
 
-export const PALETTE_STORAGE_KEY = "astrolabe-palette";
+export const PALETTE_STORAGE_KEY = "alidade-palette";
 
 /** Where build-favicon.py writes one file per preset. */
 export const faviconHref = (id: PresetId) => `/favicons/${id}.svg`;

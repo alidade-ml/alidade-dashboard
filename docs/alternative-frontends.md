@@ -81,7 +81,7 @@ Path params (`{name}`, `{hash}`) accept anything — metric names commonly conta
 }
 ```
 
-`kind` is the `astrolabe.kind` tag verbatim, and is absent on runs that predate
+`kind` is the `alidade.kind` tag verbatim, and is absent on runs that predate
 it (legacy training runs). Added in v1.9.0: the endpoint has always filtered by
 kind and a consumer previously had no way to see that, or to apply its own rule.
 
@@ -165,11 +165,11 @@ Every alidade-orchestrated run lives in the Aim repo at `aim://localhost:43800` 
 
 | Tag                    | Meaning                                                    |
 | ---------------------- | ---------------------------------------------------------- |
-| `astrolabe.experiment` | The alidade experiment name (matches `/api/experiments`) |
-| `astrolabe.version`    | Submit version (`v1`, `v2`, …) — increments per re-submit  |
-| `astrolabe.submit_id`  | UUID for this specific submit                              |
-| `astrolabe.user`       | Submitter identity (matches `submitted_by`)                |
-| `astrolabe.status`     | `completed` / `failed` / `interrupted` (set on close)      |
+| `alidade.experiment` | The alidade experiment name (matches `/api/experiments`) |
+| `alidade.version`    | Submit version (`v1`, `v2`, …) — increments per re-submit  |
+| `alidade.submit_id`  | UUID for this specific submit                              |
+| `alidade.user`       | Submitter identity (matches `submitted_by`)                |
+| `alidade.status`     | `completed` / `failed` / `interrupted` (set on close)      |
 
 Use these to group runs across experiments / versions / submitters in your custom UI without re-implementing alidade's orchestration concepts.
 
@@ -179,7 +179,7 @@ Use these to group runs across experiments / versions / submitters in your custo
 from aim import Repo
 
 repo = Repo("aim://localhost:43800")
-runs = repo.query_runs("run.astrolabe.experiment == 'bert-pretrain'").iter_runs()
+runs = repo.query_runs("run.alidade.experiment == 'bert-pretrain'").iter_runs()
 for run in runs:
     for image_seq in run.iter_sequence_info_by_type("images"):
         # image_seq.values: list of aim.Image objects
@@ -229,7 +229,7 @@ for kv in os.environ.get("AIM_RUN_TAGS", "").split(","):
 
 # … your training loop, run.track(value, name="...", step=...) …
 
-run["astrolabe.status"] = "completed"  # or "failed" on exception
+run["alidade.status"] = "completed"  # or "failed" on exception
 run.close()
 ```
 
@@ -265,11 +265,11 @@ If you're building anything that consumes alidade data, lock these in:
 
 ### Tag schema (durable across versions)
 
-- `astrolabe.experiment` — string, the alidade experiment name
-- `astrolabe.version` — string of shape `v<N>` where N is the submit count
-- `astrolabe.submit_id` — string, UUID-shaped
-- `astrolabe.user` — string, submitter identity (no enforced format; typically a username)
-- `astrolabe.status` — enum: `completed` / `failed` / `interrupted`
+- `alidade.experiment` — string, the alidade experiment name
+- `alidade.version` — string of shape `v<N>` where N is the submit count
+- `alidade.submit_id` — string, UUID-shaped
+- `alidade.user` — string, submitter identity (no enforced format; typically a username)
+- `alidade.status` — enum: `completed` / `failed` / `interrupted`
 
 ### Metric namespace
 
@@ -277,7 +277,7 @@ Alidade-callbacks routes metrics into three top-level namespaces:
 
 - `train/<name>` — per-batch / per-step training metrics (on the training run)
 - `val/<name>` — during-training validation metrics (on the training run; Training tab)
-- `eval/<task_set>/<metric>` — post-training benchmark suites (on a **separate** eval Aim run tagged `astrolabe.kind="eval"`; Eval tab)
+- `eval/<task_set>/<metric>` — post-training benchmark suites (on a **separate** eval Aim run tagged `alidade.kind="eval"`; Eval tab)
 - `wall_time` — elapsed training seconds (training-only, eval-paused) — see callback contract
 
 User-named metrics pass through unchanged. `MaskedLanguagePerplexity`, `throughput/samples_per_sec`, custom names — no rewriting.

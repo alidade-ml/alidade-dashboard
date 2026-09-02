@@ -7,12 +7,12 @@ import path from "node:path";
 
 // Plain Vite + TanStack Router (SPA mode) — no SSR, no Cloudflare Workers
 // runtime. The build output is a single static index.html plus an
-// assets/ directory, which any HTTP file server (including astrolabe's
+// assets/ directory, which any HTTP file server (including alidade's
 // Go binary via `http.FileServer`) can serve directly.
 //
 // We previously used @lovable.dev/vite-tanstack-config which targeted
 // Cloudflare Workers. That produces an SSR worker bundle that needs a
-// Workers runtime to render — incompatible with astrolabe's NUC
+// Workers runtime to render — incompatible with alidade's NUC
 // deployment shape (Go binary, no Node, no Workers). The migration
 // trades Lovable's SSR niceties for a deployment that fits the actual
 // use case: an internal-only dashboard on a private network.

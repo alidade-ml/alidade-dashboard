@@ -9,7 +9,7 @@
 set -euo pipefail
 
 ENGINE="${1:-$HOME/workspace/astrolabe}"
-SRC="$ENGINE/astrolabe/contract.py"
+SRC="$ENGINE/alidade/contract.py"
 DEST="$(dirname "$0")/../server/api/testdata"
 
 [ -f "$SRC" ] || { echo "no contract.py at $SRC" >&2; exit 1; }
@@ -20,7 +20,7 @@ SHA="$(shasum -a 256 "$DEST/contract.py" | cut -d' ' -f1)"
 
 cat > "$DEST/contract-vendor.json" <<EOF
 {
-  "_comment": "Pinned engine ref that testdata/contract.py was vendored from, plus its sha256. This is a TEST FIXTURE, not shipped code: nothing in the binary reads it. To update: copy astrolabe/contract.py here, update both fields, run go test. See tools/vendor-contract.sh.",
+  "_comment": "Pinned engine ref that testdata/contract.py was vendored from, plus its sha256. This is a TEST FIXTURE, not shipped code: nothing in the binary reads it. To update: copy alidade/contract.py here, update both fields, run go test. See tools/vendor-contract.sh.",
   "vendored_from": "alidade@$REF",
   "sha256": "$SHA"
 }

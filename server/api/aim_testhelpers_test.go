@@ -23,7 +23,7 @@ import (
 )
 
 // fakeRun describes one Aim run for the fake server. Tag map keys
-// should use the dotted form ("astrolabe.version") to mirror what the
+// should use the dotted form ("alidade.version") to mirror what the
 // callback writes; the handler also accepts the nested form but the
 // dotted form is the production layout.
 type fakeRun struct {
@@ -347,13 +347,13 @@ func matchesAimQuery(fr fakeRun, q string) bool {
 
 // tagValue reads a tag from a fakeRun's params, honouring both the flat
 // and nested layouts Aim uses — the same two shapes
-// AstrolabeTagsFromParams handles.
+// AlidadeTagsFromParams handles.
 func tagValue(fr fakeRun, tag string) any {
 	if v, ok := fr.tags[tag]; ok {
 		return v
 	}
-	if nested, ok := fr.tags["astrolabe"].(map[string]any); ok {
-		if v, ok := nested[strings.TrimPrefix(tag, "astrolabe.")]; ok {
+	if nested, ok := fr.tags["alidade"].(map[string]any); ok {
+		if v, ok := nested[strings.TrimPrefix(tag, "alidade.")]; ok {
 			return v
 		}
 	}
@@ -382,7 +382,7 @@ func encodeSearchFromFakeRuns(runs []fakeRun) []byte {
 			if s, ok := v.(string); ok {
 				add(encPath(fr.hash, "params", k), encVal(s))
 			}
-			// The nested layout: astrolabe -> {kind: ..., ...}
+			// The nested layout: alidade -> {kind: ..., ...}
 			if nested, ok := v.(map[string]any); ok {
 				for nk, nv := range nested {
 					if s, ok := nv.(string); ok {

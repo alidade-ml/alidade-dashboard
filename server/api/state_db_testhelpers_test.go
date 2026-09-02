@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// testSchemaSQL mirrors astrolabe/db.py migration 0001 exactly. Kept
+// testSchemaSQL mirrors alidade/db.py migration 0001 exactly. Kept
 // verbatim so accidental drift between the two repos surfaces as a
 // schema-version test failure rather than a silent column rename. The
 // CHECK constraints are dropped here on purpose: tests reach in with

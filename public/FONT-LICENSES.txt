@@ -1,4 +1,4 @@
-Fonts bundled with the astrolabe dashboard.
+Fonts bundled with the alidade dashboard.
 Every face below is licensed under the SIL Open Font License 1.1,
 which permits commercial use, modification and redistribution.
 
@@ -294,10 +294,10 @@ FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ========================================================================
-Astrolabe Wordmark
+Alidade Wordmark
 ========================================================================
-Astrolabe Wordmark is a modified subset of Ysabeau.
-Changes: subset to the letters of ASTROLABE; the crossbar removed from A.
+Alidade Wordmark is a modified subset of Ysabeau.
+Changes: subset to the letters of ALIDADE; the crossbar removed from A.
 Renamed so it is not mistaken for the original. The Ysabeau authors do
 not endorse this modification.
 

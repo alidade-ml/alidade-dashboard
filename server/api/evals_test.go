@@ -6,8 +6,8 @@ package api
 // implementation):
 //
 //   * Returns the set of eval Aim runs that score a given model run,
-//     keyed by ``astrolabe.kind == "eval"`` AND
-//     ``astrolabe.model_run_hash == <hash>``.
+//     keyed by ``alidade.kind == "eval"`` AND
+//     ``alidade.model_run_hash == <hash>``.
 //   * Dedups by ``task_set`` keeping the newest by creation_time —
 //     re-eval over time leaves older runs in Aim for forensics; the
 //     dashboard shows the latest by default.
@@ -40,9 +40,9 @@ func makeEvalFakeRun(hash, taskSet, modelRunHash string, createdAt time.Time) fa
 		creationTime: unixSecs(createdAt),
 		endTime:      unixSecs(createdAt.Add(time.Minute)),
 		tags: map[string]any{
-			"astrolabe.kind":           "eval",
-			"astrolabe.task_set":       taskSet,
-			"astrolabe.model_run_hash": modelRunHash,
+			"alidade.kind":           "eval",
+			"alidade.task_set":       taskSet,
+			"alidade.model_run_hash": modelRunHash,
 		},
 	}
 }
@@ -59,7 +59,7 @@ func withModelRun(runs []fakeRun) []fakeRun {
 		experiment:   "training",
 		hash:         "model-1",
 		creationTime: unixSecs(time.Date(2026, 5, 30, 11, 0, 0, 0, time.UTC)),
-		tags:         map[string]any{"astrolabe.kind": "training"},
+		tags:         map[string]any{"alidade.kind": "training"},
 	}
 	return append([]fakeRun{model}, runs...)
 }
@@ -133,9 +133,9 @@ func TestHandleRunEvalsSkipsNonEvalKind(t *testing.T) {
 			hash:         "training-run",
 			creationTime: unixSecs(t0),
 			tags: map[string]any{
-				"astrolabe.kind":           "training",
-				"astrolabe.model_run_hash": "model-1",
-				"astrolabe.task_set":       "glue",
+				"alidade.kind":           "training",
+				"alidade.model_run_hash": "model-1",
+				"alidade.task_set":       "glue",
 			},
 		},
 		{
@@ -143,9 +143,9 @@ func TestHandleRunEvalsSkipsNonEvalKind(t *testing.T) {
 			hash:         "metadata-run",
 			creationTime: unixSecs(t0),
 			tags: map[string]any{
-				"astrolabe.kind":           "metadata",
-				"astrolabe.model_run_hash": "model-1",
-				"astrolabe.task_set":       "glue",
+				"alidade.kind":           "metadata",
+				"alidade.model_run_hash": "model-1",
+				"alidade.task_set":       "glue",
 			},
 		},
 		makeEvalFakeRun("eval-run", "glue", "model-1", t0),
@@ -172,9 +172,9 @@ func TestHandleRunEvalsSkipsEmptyTaskSet(t *testing.T) {
 			hash:         "no-tag",
 			creationTime: unixSecs(t0),
 			tags: map[string]any{
-				"astrolabe.kind":           "eval",
-				"astrolabe.model_run_hash": "model-1",
-				// astrolabe.task_set missing
+				"alidade.kind":           "eval",
+				"alidade.model_run_hash": "model-1",
+				// alidade.task_set missing
 			},
 		},
 	}
@@ -201,9 +201,9 @@ func TestHandleRunEvalsFindsEvalRunsRegardlessOfExperimentFiling(t *testing.T) {
 			hash:         "sidecar-attributed",
 			creationTime: unixSecs(t0),
 			tags: map[string]any{
-				"astrolabe.kind":           "eval",
-				"astrolabe.task_set":       "glue",
-				"astrolabe.model_run_hash": "model-1",
+				"alidade.kind":           "eval",
+				"alidade.task_set":       "glue",
+				"alidade.model_run_hash": "model-1",
 			},
 		},
 	}

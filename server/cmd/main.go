@@ -19,7 +19,7 @@ func main() {
 	addr := flag.String("addr", "0.0.0.0:43801", "Listen address for the dashboard")
 	colorsFile := flag.String("colors", "", "Path to colors.json (default: config/colors.json next to binary)")
 	staticDir := flag.String("static", "", "Path to static files directory (default: static/ next to binary)")
-	stateDB := flag.String("state-db", "", "Path to astrolabe state SQLite DB (default: /var/lib/astrolabe/state.db)")
+	stateDB := flag.String("state-db", "", "Path to alidade state SQLite DB (default: /var/lib/alidade/state.db)")
 	flag.Parse()
 
 	// Resolve paths relative to the binary location
@@ -40,10 +40,10 @@ func main() {
 	}
 
 	// Resolve state DB path. System-wide single file (same posture as
-	// the Aim repo) — replaces the per-user ~/.astrolabe/state/ JSON
-	// directory in astrolabe v1.8+.
+	// the Aim repo) — replaces the per-user ~/.alidade/state/ JSON
+	// directory in alidade v1.8+.
 	if *stateDB == "" {
-		*stateDB = "/var/lib/astrolabe/state.db"
+		*stateDB = "/var/lib/alidade/state.db"
 	}
 
 	// Create Aim client, state reader, and handler.
@@ -137,7 +137,7 @@ func main() {
 	fileServer := http.FileServer(http.Dir(*staticDir))
 	mux.Handle("/", spaFallback(*staticDir, fileServer))
 
-	log.Printf("Astrolabe dashboard starting on %s", *addr)
+	log.Printf("Alidade dashboard starting on %s", *addr)
 	log.Printf("  Aim API: %s", *aimURL)
 	log.Printf("  Static:  %s", *staticDir)
 	if err := http.ListenAndServe(*addr, mux); err != nil {

@@ -1,5 +1,5 @@
-Astrolabe Wordmark is a modified subset of Ysabeau.
-Changes: subset to the letters of ASTROLABE; the crossbar removed from A.
+Alidade Wordmark is a modified subset of Ysabeau.
+Changes: subset to the letters of ALIDADE; the crossbar removed from A.
 Renamed so it is not mistaken for the original. The Ysabeau authors do
 not endorse this modification.
 

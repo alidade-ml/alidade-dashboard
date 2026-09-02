@@ -5,7 +5,7 @@
  * grouping logic here is exercised against the real field set rather than a
  * convenient one:
  *
- *   tags       astrolabe.kind=sample, astrolabe.sample_set, astrolabe.model_run_hash
+ *   tags       alidade.kind=sample, alidade.sample_set, alidade.model_run_hash
  *   sequences  sample/<set>/input  and  sample/<set>/output, paired by step
  *
  * Two properties of the real data are deliberately preserved because they are
@@ -36,7 +36,7 @@ export interface SampleRow {
   inputUrl?: string;
   /** Run name, as shown on Training and Eval. */
   model: string;
-  /** astrolabe.model_run_hash — the join key, never typed by a human. */
+  /** alidade.model_run_hash — the join key, never typed by a human. */
   modelHash: string;
   step: number;
   /** Text output. */

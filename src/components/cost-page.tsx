@@ -9,7 +9,7 @@
  *   - In-flight runs render with estimated cost + a [running] pill. We do
  *     NOT tick the number live; stability over scrolling beats real-time
  *     for a "where did the money go" view.
- *   - Tag dimension intentionally absent. astrolabe has no per-experiment
+ *   - Tag dimension intentionally absent. alidade has no per-experiment
  *     tags today; revisit when the paper-tagging feature ships.
  *   - Experiments table uses rowspan-style multilevel rendering — accordion-
  *     style noted as a future option if the table grows past a screen.

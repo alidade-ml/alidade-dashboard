@@ -2,13 +2,13 @@ package api
 
 // The engine↔dashboard contract, which until now did not exist.
 //
-// astrolabe's contract.py is the source of truth for the astrolabe.* tag
+// alidade's contract.py is the source of truth for the alidade.* tag
 // names. The hub types them into Go source as string literals. Nothing
 // checked that they agreed, and the failure mode is silent: a tag renamed
 // engine-side makes a tab return an empty list, which is indistinguishable
 // from "nobody logged any".
 //
-// docs/contracts-and-testbeds.md in astrolabe says it plainly — the
+// docs/contracts-and-testbeds.md in alidade says it plainly — the
 // engine↔callback contract is vendored and hash-pinned, and the
 // engine↔dashboard contract is Go source literals. This file is the second
 // half.
@@ -23,7 +23,7 @@ package api
 //
 // Two paths were weighed and this is the one chosen:
 //
-//   - Parse contract.py from a sibling astrolabe checkout at test time.
+//   - Parse contract.py from a sibling alidade checkout at test time.
 //     Catches drift immediately, and needs a checkout at a guessed path that
 //     a fresh clone will not have. `go test ./...` would pass by skipping.
 //   - Vendor a copy with a hash pin. Self-contained, works on a fresh clone,
@@ -92,24 +92,24 @@ func TestContractVendoredCopyIsIntact(t *testing.T) {
 }
 
 func TestContractTagNamesMatchTheEngine(t *testing.T) {
-	// Every astrolabe.* string the hub reads, against the constant that
+	// Every alidade.* string the hub reads, against the constant that
 	// produces it. A rename engine-side fails here instead of emptying a tab.
 	c := loadVendoredContract(t)
 
 	// goLiteral is what this package actually reads from Aim params;
 	// pyName is the constant in contract.py that writes it.
 	for _, tc := range []struct{ pyName, goLiteral string }{
-		{"TAG_SUBMIT_ID", "astrolabe.submit_id"},
-		{"TAG_USER", "astrolabe.user"},
-		{"TAG_VERSION", "astrolabe.version"},
-		{"TAG_EXPERIMENT", "astrolabe.experiment"},
-		{"TAG_GPU_TYPE", "astrolabe.gpu_type"},
-		{"TAG_GPU_RATE_CENTS_PER_HOUR", "astrolabe.gpu_rate_cents_per_hour"},
-		{"TAG_OUTCOME", "astrolabe.outcome"},
-		{"TAG_KIND", "astrolabe.kind"},
-		{"TAG_TASK_SET", "astrolabe.task_set"},
-		{"TAG_MODEL_RUN_HASH", "astrolabe.model_run_hash"},
-		{"TAG_SAMPLE_SET", "astrolabe.sample_set"},
+		{"TAG_SUBMIT_ID", "alidade.submit_id"},
+		{"TAG_USER", "alidade.user"},
+		{"TAG_VERSION", "alidade.version"},
+		{"TAG_EXPERIMENT", "alidade.experiment"},
+		{"TAG_GPU_TYPE", "alidade.gpu_type"},
+		{"TAG_GPU_RATE_CENTS_PER_HOUR", "alidade.gpu_rate_cents_per_hour"},
+		{"TAG_OUTCOME", "alidade.outcome"},
+		{"TAG_KIND", "alidade.kind"},
+		{"TAG_TASK_SET", "alidade.task_set"},
+		{"TAG_MODEL_RUN_HASH", "alidade.model_run_hash"},
+		{"TAG_SAMPLE_SET", "alidade.sample_set"},
 	} {
 		want, ok := c[tc.pyName]
 		if !ok {
@@ -176,24 +176,24 @@ func TestContractVersionIsRecorded(t *testing.T) {
 	t.Logf("vendored contract version: %s", v)
 }
 
-func TestContractGuardCoversEveryAstrolabeLiteralInSource(t *testing.T) {
-	// The anti-rot check. Adding a new astrolabe.* literal to Go without
+func TestContractGuardCoversEveryAlidadeLiteralInSource(t *testing.T) {
+	// The anti-rot check. Adding a new alidade.* literal to Go without
 	// adding it to the table above would leave it unguarded, and the guard
 	// would still be green — which is the failure mode this whole file
 	// exists to remove.
 	guarded := map[string]bool{}
 	for _, tc := range []string{
-		"astrolabe.submit_id", "astrolabe.user", "astrolabe.version",
-		"astrolabe.experiment", "astrolabe.gpu_type",
-		"astrolabe.gpu_rate_cents_per_hour", "astrolabe.outcome",
-		"astrolabe.kind", "astrolabe.task_set", "astrolabe.model_run_hash",
-		"astrolabe.sample_set", "astrolabe.repo", "astrolabe.backend",
-		"astrolabe.started_at_iso", "astrolabe.finished_at_iso",
+		"alidade.submit_id", "alidade.user", "alidade.version",
+		"alidade.experiment", "alidade.gpu_type",
+		"alidade.gpu_rate_cents_per_hour", "alidade.outcome",
+		"alidade.kind", "alidade.task_set", "alidade.model_run_hash",
+		"alidade.sample_set", "alidade.repo", "alidade.backend",
+		"alidade.started_at_iso", "alidade.finished_at_iso",
 	} {
 		guarded[tc] = true
 	}
 
-	literal := regexp.MustCompile(`"(astrolabe\.[a-z_]+)"`)
+	literal := regexp.MustCompile(`"(alidade\.[a-z_]+)"`)
 	found := map[string]bool{}
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -213,7 +213,7 @@ func TestContractGuardCoversEveryAstrolabeLiteralInSource(t *testing.T) {
 		}
 	}
 	if len(found) < 10 {
-		t.Fatalf("found only %d astrolabe.* literals in source; the scan is broken",
+		t.Fatalf("found only %d alidade.* literals in source; the scan is broken",
 			len(found))
 	}
 	for lit := range found {

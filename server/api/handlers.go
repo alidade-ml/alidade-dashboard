@@ -118,15 +118,15 @@ type RunSummary struct {
 	Active         bool    `json:"active"`
 	Duration       string  `json:"duration"`
 	// v1.2.0 — which submit produced this run. Empty for legacy runs
-	// that pre-date the astrolabe.version tag; the dashboard falls
+	// that pre-date the alidade.version tag; the dashboard falls
 	// back to "v1" in that case.
 	Version  string `json:"version,omitempty"`
 	SubmitID string `json:"submit_id,omitempty"`
-	// v1.4.0 — submitter identity from the astrolabe.user tag. Used
+	// v1.4.0 — submitter identity from the alidade.user tag. Used
 	// by the dashboard's stats table to show "by alice" when comparing
 	// across users; empty for legacy runs.
 	SubmittedBy string `json:"submitted_by,omitempty"`
-	// v1.9.0 — the astrolabe.kind tag, verbatim and possibly empty.
+	// v1.9.0 — the alidade.kind tag, verbatim and possibly empty.
 	//
 	// Added because this endpoint filters, and until now a consumer had
 	// no way to know that or to apply its own rule. Empty means the run
@@ -137,12 +137,12 @@ type RunSummary struct {
 type RunDetail struct {
 	Hash string `json:"hash"`
 	Name string `json:"name"`
-	// Which astrolabe experiment this run actually lives in. Usually the
+	// Which alidade experiment this run actually lives in. Usually the
 	// experiment being requested, but a model evaluated by this
 	// experiment can live in another one — the row has to say so or the
 	// user cannot tell where the model came from.
 	ExperimentName string `json:"experiment"`
-	// astrolabe.kind, passed through so the client can tell a training
+	// alidade.kind, passed through so the client can tell a training
 	// run from an imported model. Empty means an untagged legacy run,
 	// which is treated as training.
 	Kind string `json:"kind,omitempty"`
@@ -156,11 +156,11 @@ type RunDetail struct {
 	Metrics      []MetricEntry `json:"metrics"`
 	FinalLoss    *float64      `json:"final_loss"`
 	// v1.2.0 — which submit produced this run. Empty for legacy runs
-	// that pre-date the astrolabe.version tag; the dashboard falls back
+	// that pre-date the alidade.version tag; the dashboard falls back
 	// to "v1" in that case.
 	Version  string `json:"version,omitempty"`
 	SubmitID string `json:"submit_id,omitempty"`
-	// v1.4.0 — submitter identity from the astrolabe.user tag. Empty
+	// v1.4.0 — submitter identity from the alidade.user tag. Empty
 	// for legacy runs.
 	SubmittedBy string `json:"submitted_by,omitempty"`
 }
@@ -171,7 +171,7 @@ type MetricResponse struct {
 	Values []float64 `json:"values"`
 	// WallTimes — elapsed seconds since run start at each step, index-aligned
 	// with Steps. Populated when the run's wall_time metric is available (the
-	// AstrolabeLogger callback writes it). Omitted entirely when missing —
+	// AlidadeLogger callback writes it). Omitted entirely when missing —
 	// frontend falls back to step number for the wall-time x-axis.
 	//
 	// A step the wall_time series does not cover is null, never 0: zero is a
@@ -222,7 +222,7 @@ type IncludeEntry struct {
 // five duplicate rows on the home page.
 //
 // “version_count“ is the number of distinct “version“ values in
-// the SQLite group, not the count of “astrolabe.version“ tags on
+// the SQLite group, not the count of “alidade.version“ tags on
 // Aim runs. Backfilled metadata-only submits (no composer training
 // run in Aim) would otherwise be undercounted.
 func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
@@ -440,7 +440,7 @@ func (h *Handler) HandleExperimentRuns(w http.ResponseWriter, r *http.Request) {
 
 			info, err := h.aim.GetRunInfo(ar.RunID)
 			if err == nil {
-				tags := AstrolabeTagsFromParams(info.Params)
+				tags := AlidadeTagsFromParams(info.Params)
 				switch tags.Kind {
 				case KindEval:
 					// Not a row itself — the Eval tab renders it. Its
@@ -527,10 +527,10 @@ func (h *Handler) enrichRunDetail(detail *RunDetail, info *RunInfo, runHash stri
 		val := loss.Values[len(loss.Values)-1]
 		detail.FinalLoss = &val
 	}
-	// Extract all astrolabe.* tags. Empty strings are fine — the
+	// Extract all alidade.* tags. Empty strings are fine — the
 	// frontend falls back to v1 / "unknown" for legacy runs that
 	// pre-date the tagging.
-	tags := AstrolabeTagsFromParams(info.Params)
+	tags := AlidadeTagsFromParams(info.Params)
 	detail.Version = tags.Version
 	detail.SubmitID = tags.SubmitID
 	detail.SubmittedBy = tags.SubmittedBy
@@ -674,14 +674,14 @@ func hashesOfNewestVersion(runs []SearchedRun) []string {
 
 	newest := -1
 	for _, r := range live {
-		if n, ok := versionOrdinal(AstrolabeTagsFromParams(r.Params).Version); ok && n > newest {
+		if n, ok := versionOrdinal(AlidadeTagsFromParams(r.Params).Version); ok && n > newest {
 			newest = n
 		}
 	}
 
 	hashes := make([]string, 0, len(live))
 	for _, r := range live {
-		n, ok := versionOrdinal(AstrolabeTagsFromParams(r.Params).Version)
+		n, ok := versionOrdinal(AlidadeTagsFromParams(r.Params).Version)
 		if newest < 0 || (ok && n == newest) {
 			hashes = append(hashes, r.Hash)
 		}
@@ -758,7 +758,7 @@ func (h *Handler) resolveIncludeByQuery(incName string) IncludeEntry {
 
 	// 3. Run name — narrowed to the SINGLE most recent match across all
 	// experiments. The same run.name commonly appears in many
-	// experiments (e.g. "astrolabe_test" is the inner training name for
+	// experiments (e.g. "alidade_test" is the inner training name for
 	// several configs); pulling every match flooded the comparison set.
 	if runs, err := h.aim.SearchRuns(QueryByRunName(incName)); err == nil && len(runs) > 0 {
 		latest := runs[0]
@@ -813,7 +813,7 @@ func (h *Handler) HandleRuns(w http.ResponseWriter, r *http.Request) {
 
 	runs := make([]RunSummary, 0, len(found))
 	for _, sr := range found {
-		tags := AstrolabeTagsFromParams(sr.Params)
+		tags := AlidadeTagsFromParams(sr.Params)
 		if tags.Kind == KindEval || tags.Kind == KindMetadata {
 			continue
 		}
@@ -993,8 +993,8 @@ type EvalManifestEntry struct {
 // GET /api/runs/{model_run_hash}/evals
 // → [{ aim_run_hash, task_set, creation_time }, ...]
 //
-// Discovery filters Aim runs by “astrolabe.kind == "eval"“ and
-// “astrolabe.model_run_hash == <hash>“. Multiple eval runs for the
+// Discovery filters Aim runs by “alidade.kind == "eval"“ and
+// “alidade.model_run_hash == <hash>“. Multiple eval runs for the
 // same (model_run, task_set) collapse to the newest by creation_time
 // (re-eval over time leaves older runs in Aim for forensics; the
 // dashboard shows the latest by default). See “plans/eval-runs.md“
@@ -1043,7 +1043,7 @@ func (h *Handler) HandleRunEvals(w http.ResponseWriter, r *http.Request) {
 		if run.Archived {
 			continue
 		}
-		tags := AstrolabeTagsFromParams(run.Params)
+		tags := AlidadeTagsFromParams(run.Params)
 		// Re-check what the query asked for. The query is the
 		// optimisation; this is the correctness. Aim's query semantics
 		// are not ours to assume, and a mismatch would put another
@@ -1128,7 +1128,7 @@ func extractPathParam(path, prefix, suffix string) string {
 // runDisplayName picks the label shown to the user for a single Aim run.
 //
 // Prefers the run's own name (set by the training callback from Composer's
-// `run_name` — e.g. "astrolabe_test_v2") so multiple runs within one
+// `run_name` — e.g. "alidade_test_v2") so multiple runs within one
 // experiment are distinguishable. Falls back to the experiment name when
 // Aim returned its default placeholder ("Run: <hash>") or an empty name,
 // since that value carries no useful information.

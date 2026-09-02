@@ -1,4 +1,4 @@
-# Astrolabe Dashboard server (Go API + binary).
+# Alidade Dashboard server (Go API + binary).
 #
 # Local-dev targets only. The release flow lives in
 # .github/workflows/release.yml — that's what publishes the binary +

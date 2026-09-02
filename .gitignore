@@ -19,7 +19,7 @@ dist-py
 
 # Hatchling staging dir (build_hook.py copies dist/ here at wheel-build time).
 # Local dev rebuilds it; CI does the same. Never check in.
-astrolabe_dashboard/
+alidade_dashboard/
 
 # Go build outputs (server/Makefile)
 server/alidade-dashboard

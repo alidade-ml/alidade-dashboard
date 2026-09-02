@@ -1,7 +1,7 @@
 package api
 
 // Cost endpoint. Renders the dashboard's /cost page driven from the
-// astrolabe state SQLite database — one ``submits`` row per submit
+// alidade state SQLite database — one ``submits`` row per submit
 // version is the source of truth for everything cost-related (rate,
 // gpu_type, outcome, backend, repo, submitter, wall window).
 //
@@ -471,7 +471,7 @@ func buildExperiments(runs []costRun, now time.Time) ([]CostExperimentEntry, int
 
 // resolveWindow maps a window label to (start, end, bucket, normalized label).
 // "all" reaches back 5 years — long enough to capture any realistic
-// astrolabe history; if a NUC actually accumulates >5y of data we'll
+// alidade history; if a NUC actually accumulates >5y of data we'll
 // extend.
 // Returns (start, end, days, bucket, normalizedLabel). ``days`` is the
 // canonical day count for the label (7, 30, 90); 0 for "all" since

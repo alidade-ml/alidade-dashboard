@@ -68,9 +68,9 @@
    Kept off --font-display deliberately: a crossbar-less A is right for a logo
    and unreadable in a table. Built by scripts/build-fonts.py. */
 @font-face {
-  font-family: "Astrolabe Wordmark";
+  font-family: "Alidade Wordmark";
   font-style: normal;
   font-display: swap;
   font-weight: 500;
-  src: url(./fonts/astrolabe-wordmark.woff2) format("woff2");
+  src: url(./fonts/alidade-wordmark.woff2) format("woff2");
 }
