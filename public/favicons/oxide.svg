@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"
-     role="img" aria-label="Astrolabe" stroke-linejoin="round">
+     role="img" aria-label="Alidade" stroke-linejoin="round">
   <style>
     :root { --astro-mark-ink: #281B15; --astro-accent: #9A4825; }
     @media (prefers-color-scheme: dark) {
       :root { --astro-mark-ink: #B1A19A; --astro-accent: #AA664B; }
     }
   </style>
-  <title>Astrolabe</title>
+  <title>Alidade</title>
   <defs>
     <!-- The letterform, reused three times: knocked out of the crescent,
          painted as ink off the crescent, and nowhere else. -->
