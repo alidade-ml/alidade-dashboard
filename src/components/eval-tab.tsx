@@ -1,7 +1,7 @@
 /**
  * Eval tab — renders benchmark results for the runs currently in scope.
  *
- * Producer-side helper is ``astrolabe_callbacks.log_eval_table`` (and
+ * Producer-side helper is ``alidade_callbacks.log_eval_table`` (and
  * ``start_eval_run`` for multi-step traces). Wired to the live API
  * endpoints ``/api/runs/<hash>/evals``, ``/info``, and ``/metrics/...``.
  *

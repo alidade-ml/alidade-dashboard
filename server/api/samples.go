@@ -2,7 +2,7 @@ package api
 
 // Sample discovery for the Examples tab.
 //
-// ``astrolabe_callbacks.log_samples`` writes one Aim run per batch of
+// ``alidade_callbacks.log_samples`` writes one Aim run per batch of
 // qualitative outputs, tagged with astrolabe.kind="sample", the
 // researcher's sample_set label, and the model run the samples came
 // from. This file answers "which batches exist for this run?" — the

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/naston/astrolabe-insights-hub/server/api"
+	"github.com/alidade-ml/alidade-dashboard/server/api"
 )
 
 func main() {

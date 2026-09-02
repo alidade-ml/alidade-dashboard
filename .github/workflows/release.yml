@@ -4,7 +4,7 @@
 # GitHub release:
 #
 #   1. astrolabe_dashboard-X.Y.Z-py3-none-any.whl  (Python wheel — static bundle)
-#   2. astrolabe-dashboard-X.Y.Z-linux-amd64.tar.gz (Go binary)
+#   2. alidade-dashboard-X.Y.Z-linux-amd64.tar.gz (Go binary)
 #   3. SHA256SUMS                                   (sums for the above)
 #
 # `astrolabe admin dashboard install` (in the astrolabe repo) consumes
@@ -84,12 +84,12 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: "0"
         run: |
-          go build -ldflags="-s -w" -o ../astrolabe-dashboard ./cmd
+          go build -ldflags="-s -w" -o ../alidade-dashboard ./cmd
           # Tarball with deterministic naming so the install command
           # can compose the URL from version + platform.
           cd ..
-          BINARY_TAR="astrolabe-dashboard-${{ steps.ver.outputs.tag }}-linux-amd64.tar.gz"
-          tar czf "${BINARY_TAR}" astrolabe-dashboard
+          BINARY_TAR="alidade-dashboard-${{ steps.ver.outputs.tag }}-linux-amd64.tar.gz"
+          tar czf "${BINARY_TAR}" alidade-dashboard
           ls -la "${BINARY_TAR}"
 
       - name: Sync wheel version with tag
@@ -112,7 +112,7 @@ jobs:
         run: |
           mkdir -p release-artifacts
           mv dist-py/*.whl release-artifacts/
-          mv astrolabe-dashboard-${{ steps.ver.outputs.tag }}-linux-amd64.tar.gz release-artifacts/
+          mv alidade-dashboard-${{ steps.ver.outputs.tag }}-linux-amd64.tar.gz release-artifacts/
           cd release-artifacts
           sha256sum * > SHA256SUMS
           cat SHA256SUMS

@@ -22,8 +22,8 @@ dist-py
 astrolabe_dashboard/
 
 # Go build outputs (server/Makefile)
-server/astrolabe-dashboard
-server/astrolabe-dashboard-linux-amd64
+server/alidade-dashboard
+server/alidade-dashboard-linux-amd64
 
 # Python build artifacts
 __pycache__/
