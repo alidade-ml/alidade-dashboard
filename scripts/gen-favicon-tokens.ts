@@ -20,7 +20,7 @@ const presets = Object.fromEntries(
     (["light", "dark"] as const).reduce(
       (acc, mode) => {
         const t = tokensFor(p, mode);
-        acc[mode] = { ink: t["--astro-mark-ink"], accent: t["--astro-accent"] };
+        acc[mode] = { ink: t["--alidade-mark-ink"], accent: t["--alidade-accent"] };
         return acc;
       },
       {} as Record<string, { ink: string; accent: string }>,

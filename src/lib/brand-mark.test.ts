@@ -1,8 +1,8 @@
 /**
  * Guards on how the mark is rendered.
  *
- * The constraint that matters: the mark must be inlined. It reads --astro-ink
- * and --astro-accent, and an <img> has no cascade, so a URL-referenced mark
+ * The constraint that matters: the mark must be inlined. It reads --alidade-ink
+ * and --alidade-accent, and an <img> has no cascade, so a URL-referenced mark
  * looks correct on the default palette and wrong on the other four — a failure
  * nobody notices until someone switches palette.
  */
@@ -50,9 +50,9 @@ describe("the mark", () => {
 
   it("reads the brand tokens for every painted part", () => {
     // A vendored copy that hardcoded hex would look right on exactly one palette.
-    assert.ok(mark.includes("var(--astro-accent"), "the crescent does not read the accent");
+    assert.ok(mark.includes("var(--alidade-accent"), "the crescent does not read the accent");
     assert.ok(
-      mark.includes("var(--astro-mark-ink"),
+      mark.includes("var(--alidade-mark-ink"),
       "the ink parts do not read the mark ink token",
     );
     const hardcoded = mark.match(/(?:fill|stroke)="#(?!fff|000)[0-9A-Fa-f]{3,6}"/g) ?? [];
@@ -62,11 +62,11 @@ describe("the mark", () => {
   it("falls back to the values brand.md publishes", () => {
     // Invisible until the tokens are missing, which is exactly when it matters.
     assert.ok(
-      mark.includes("var(--astro-mark-ink, #241D12)"),
+      mark.includes("var(--alidade-mark-ink, #241D12)"),
       "ink fallback is not brass light ink",
     );
     assert.ok(
-      mark.includes("var(--astro-accent, #865900)"),
+      mark.includes("var(--alidade-accent, #865900)"),
       "accent fallback is not brass light accent",
     );
   });
@@ -74,11 +74,11 @@ describe("the mark", () => {
   it("keeps the masks that produce the figure/ground flip", () => {
     // Drop either and the letter hides behind the crescent instead of cutting
     // through it. This shipped as a real bug in an earlier round of the mark.
-    for (const id of ["astro-crescent", "astro-offmass", "astro-channel"]) {
+    for (const id of ["alidade-crescent", "alidade-offmass", "alidade-channel"]) {
       assert.ok(mark.includes(`id="${id}"`), `mask ${id} is missing`);
     }
     assert.ok(
-      mark.includes('mask="url(#astro-offmass)"'),
+      mark.includes('mask="url(#alidade-offmass)"'),
       "the ink letter is not masked off the mass",
     );
   });
@@ -100,7 +100,7 @@ describe("the mark", () => {
       );
       const want = tokensFor(p, "light");
       assert.ok(
-        fav.includes(`--astro-accent: ${want["--astro-accent"]}`),
+        fav.includes(`--alidade-accent: ${want["--alidade-accent"]}`),
         `${p.id} favicon does not carry its own accent`,
       );
     }
@@ -113,15 +113,15 @@ describe("the mark", () => {
   });
 
   it("sets only variables the favicon's own geometry reads", () => {
-    // The failure this catches is silent: a style block naming --astro-ink while
-    // the paths read --astro-mark-ink leaves every palette rendering the
+    // The failure this catches is silent: a style block naming --alidade-ink while
+    // the paths read --alidade-mark-ink leaves every palette rendering the
     // hardcoded fallback, and the one preset whose colours happen to match the
     // fallback still looks correct.
     for (const p of PRESETS) {
       const fav = read("public", "favicons", `${p.id}.svg`);
       const style = fav.slice(fav.indexOf("<style>"), fav.indexOf("</style>"));
-      const declared = new Set(style.match(/--astro-[\w-]+(?=:)/g) ?? []);
-      const consumed = new Set((fav.match(/var\((--astro-[\w-]+)/g) ?? []).map((m) => m.slice(4)));
+      const declared = new Set(style.match(/--alidade-[\w-]+(?=:)/g) ?? []);
+      const consumed = new Set((fav.match(/var\((--alidade-[\w-]+)/g) ?? []).map((m) => m.slice(4)));
       assert.ok(consumed.size > 0, `${p.id} favicon paints nothing through a variable`);
       for (const name of consumed) {
         assert.ok(

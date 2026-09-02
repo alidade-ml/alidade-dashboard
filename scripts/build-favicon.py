@@ -29,9 +29,9 @@ OUT_DIR = pathlib.Path("public/favicons")
 DEFAULT_OUT = pathlib.Path("public/favicon.svg")
 
 STYLE = """  <style>
-    :root {{ --astro-mark-ink: {li}; --astro-accent: {la}; }}
+    :root {{ --alidade-mark-ink: {li}; --alidade-accent: {la}; }}
     @media (prefers-color-scheme: dark) {{
-      :root {{ --astro-mark-ink: {di}; --astro-accent: {da}; }}
+      :root {{ --alidade-mark-ink: {di}; --alidade-accent: {da}; }}
     }}
   </style>
 """
@@ -40,11 +40,11 @@ STYLE = """  <style>
 def _render(svg: str, light: dict, dark: dict) -> str:
     # mark.svg falls back to brass. Re-point the fallbacks at this preset so the
     # file is still right if the style block is ignored.
-    svg = svg.replace("var(--astro-mark-ink, #241D12)", f"var(--astro-mark-ink, {light['ink']})")
-    svg = svg.replace("var(--astro-accent, #865900)", f"var(--astro-accent, {light['accent']})")
+    svg = svg.replace("var(--alidade-mark-ink, #241D12)", f"var(--alidade-mark-ink, {light['ink']})")
+    svg = svg.replace("var(--alidade-accent, #865900)", f"var(--alidade-accent, {light['accent']})")
     style = STYLE.format(li=light["ink"], la=light["accent"], di=dark["ink"], da=dark["accent"])
     out = re.sub(r"(<svg[^>]*>\n)", r"\1" + style, svg, count=1)
-    if "--astro-mark-ink:" not in out:
+    if "--alidade-mark-ink:" not in out:
         raise SystemExit("style block was not inserted - the <svg> open tag did not match")
     return out
 

@@ -237,7 +237,7 @@ describe("tokensFor", () => {
     // the apparent weight that makes the correction necessary.
     for (const p of PRESETS) {
       const t = tokensFor(p, "light");
-      assert.equal(t["--astro-mark-ink"], t["--astro-ink"], `${p.id} light`);
+      assert.equal(t["--alidade-mark-ink"], t["--alidade-ink"], `${p.id} light`);
     }
   });
 
@@ -254,22 +254,22 @@ describe("tokensFor", () => {
         return 0.2126 * r + 0.7152 * g + 0.0722 * b;
       };
       assert.ok(
-        lum(t["--astro-mark-ink"]) < lum(t["--foreground"]),
+        lum(t["--alidade-mark-ink"]) < lum(t["--foreground"]),
         `${p.id} dark: the mark's ink is not below the body ink`,
       );
       // Still a non-text UI element: 3:1 against the ground it sits on.
       const c =
-        (Math.max(lum(t["--astro-mark-ink"]), lum(t["--background"])) + 0.05) /
-        (Math.min(lum(t["--astro-mark-ink"]), lum(t["--background"])) + 0.05);
+        (Math.max(lum(t["--alidade-mark-ink"]), lum(t["--background"])) + 0.05) /
+        (Math.min(lum(t["--alidade-mark-ink"]), lum(t["--background"])) + 0.05);
       assert.ok(c >= 3, `${p.id} dark: the mark measures ${c.toFixed(2)}:1 on its ground`);
     }
   });
 
   it("carries the brand tokens the inlined mark reads", () => {
     const t = tokensFor(PRESETS[0], "light");
-    assert.equal(t["--astro-paper"], PUBLISHED.brass.light.paper);
-    assert.equal(t["--astro-ink"], PUBLISHED.brass.light.ink);
-    assert.equal(t["--astro-accent"], PUBLISHED.brass.light.accent);
+    assert.equal(t["--alidade-paper"], PUBLISHED.brass.light.paper);
+    assert.equal(t["--alidade-ink"], PUBLISHED.brass.light.ink);
+    assert.equal(t["--alidade-accent"], PUBLISHED.brass.light.accent);
   });
 
   it("maps the brand accent onto --primary", () => {
@@ -277,7 +277,7 @@ describe("tokensFor", () => {
       for (const mode of MODES) {
         const t = tokensFor(p, mode);
         // Graded against the frozen table, not against the module's own
-        // --astro-accent, which tokensFor sets on the same line.
+        // --alidade-accent, which tokensFor sets on the same line.
         assert.equal(t["--primary"], PUBLISHED[p.id][mode].accent, `${p.id} ${mode}`);
         assert.equal(t["--ring"], PUBLISHED[p.id][mode].accent, `${p.id} ${mode} ring`);
       }

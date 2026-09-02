@@ -88,7 +88,7 @@
 
   /* The wordmark. Uppercase only — the mark supplies the capital.
      Tracking and weight are specified in docs/brand.md. */
-  .astro-wordmark {
+  .alidade-wordmark {
     font-family: "Alidade Wordmark", var(--font-display);
     font-weight: 500;
     letter-spacing: 0.018em;

@@ -39,7 +39,7 @@ export function PalettePicker() {
             <span
               aria-hidden
               className="h-3 w-3 shrink-0 rounded-full ring-1 ring-inset ring-black/15"
-              style={{ background: tokensFor(p, theme)["--astro-accent"] }}
+              style={{ background: tokensFor(p, theme)["--alidade-accent"] }}
             />
             <span className="flex-1">{p.label}</span>
             <Check className={cn("h-3 w-3", p.id === palette ? "opacity-100" : "opacity-0")} />

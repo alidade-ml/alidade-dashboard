@@ -4,12 +4,12 @@ import { cn } from "@/lib/utils";
  * The alidade mark, inlined.
  *
  * Inlined rather than an <img> or background-image because the geometry reads
- * --astro-mark-ink and --astro-accent, and an <img> has no cascade — it would sit
+ * --alidade-mark-ink and --alidade-accent, and an <img> has no cascade — it would sit
  * at the brass fallback on every palette and in both themes. The var() fallbacks
  * below are brand.md's brass light values and only apply if the tokens are
  * missing entirely.
  *
- * The linework uses --astro-mark-ink rather than --astro-ink: in dark mode the
+ * The linework uses --alidade-mark-ink rather than --alidade-ink: in dark mode the
  * mark's coverage makes it read brighter than the wordmark at the same colour,
  * so it is measured down. In light the two are identical.
  *
@@ -30,7 +30,7 @@ export function BrandMark({ className }: { className?: string }) {
       <defs>
         {/* Reused three times: knocked out of the crescent, painted as ink off
             the crescent, and nowhere else. */}
-        <g id="astro-letter">
+        <g id="alidade-letter">
           <path d="M 32.8719 6.2233 L 22.1156 55.4700 L 16.8844 54.1300 L 31.1281 5.7767 Z" />
           <path d="M 32.8719 5.7767 L 47.1156 54.1300 L 41.8844 55.4700 L 31.1281 6.2233 Z" />
           <circle cx="32" cy="6" r="0.9" />
@@ -38,24 +38,24 @@ export function BrandMark({ className }: { className?: string }) {
           <circle cx="44.5" cy="54.8" r="2.7" />
         </g>
 
-        <mask id="astro-crescent">
+        <mask id="alidade-crescent">
           <circle cx="32" cy="32" r="27.1" fill="#fff" />
           <circle cx="39" cy="25" r="23" fill="#000" />
-          <use href="#astro-letter" fill="#000" />
+          <use href="#alidade-letter" fill="#000" />
         </mask>
 
         {/* Black exactly on the mass: holds the ink letterform off it. Together
             with the knockout above, this is what produces the figure/ground
             flip — drop either and the letter hides behind the crescent. */}
-        <mask id="astro-offmass">
+        <mask id="alidade-offmass">
           <rect width="64" height="64" fill="#fff" />
           <circle cx="32" cy="32" r="27.1" fill="#000" />
           <circle cx="39" cy="25" r="23" fill="#fff" />
         </mask>
 
-        <mask id="astro-channel">
+        <mask id="alidade-channel">
           <rect width="64" height="64" fill="#fff" />
-          <g className="astro-rule">
+          <g className="alidade-rule">
             <line
               x1="6.5682"
               y1="37.4057"
@@ -70,19 +70,19 @@ export function BrandMark({ className }: { className?: string }) {
       </defs>
 
       <circle
-        className="astro-crescent"
+        className="alidade-crescent"
         cx="32"
         cy="32"
         r="27.1"
-        fill="var(--astro-accent, #865900)"
-        mask="url(#astro-crescent)"
+        fill="var(--alidade-accent, #865900)"
+        mask="url(#alidade-crescent)"
       />
 
       <g
-        className="astro-limb"
-        mask="url(#astro-channel)"
+        className="alidade-limb"
+        mask="url(#alidade-channel)"
         fill="none"
-        stroke="var(--astro-mark-ink, #241D12)"
+        stroke="var(--alidade-mark-ink, #241D12)"
         strokeWidth="2.2"
         strokeLinecap="round"
       >
@@ -91,13 +91,13 @@ export function BrandMark({ className }: { className?: string }) {
         <path pathLength="1" d="M 35.1686 6.1937 A 26 26 0 0 1 47.1720 53.1141" />
       </g>
 
-      <g className="astro-letter" mask="url(#astro-offmass)">
-        <use href="#astro-letter" fill="var(--astro-mark-ink, #241D12)" />
+      <g className="alidade-letter" mask="url(#alidade-offmass)">
+        <use href="#alidade-letter" fill="var(--alidade-mark-ink, #241D12)" />
       </g>
 
       <g
-        className="astro-grads"
-        stroke="var(--astro-mark-ink, #241D12)"
+        className="alidade-grads"
+        stroke="var(--alidade-mark-ink, #241D12)"
         strokeWidth="1.5"
         strokeLinecap="round"
       >
@@ -109,15 +109,15 @@ export function BrandMark({ className }: { className?: string }) {
       </g>
 
       <g
-        className="astro-rule"
-        fill="var(--astro-mark-ink, #241D12)"
-        stroke="var(--astro-mark-ink, #241D12)"
+        className="alidade-rule"
+        fill="var(--alidade-mark-ink, #241D12)"
+        stroke="var(--alidade-mark-ink, #241D12)"
         strokeLinecap="round"
       >
         <line x1="6.5682" y1="37.4057" x2="57.4318" y2="26.5943" strokeWidth="2.4" />
         <line x1="12.3321" y1="40.4744" x2="10.5857" y2="32.2580" strokeWidth="1.92" />
         <line x1="53.4143" y1="31.7420" x2="51.6679" y2="23.5256" strokeWidth="1.92" />
-        <circle className="astro-pivot" cx="32" cy="32" r="2.5" stroke="none" />
+        <circle className="alidade-pivot" cx="32" cy="32" r="2.5" stroke="none" />
       </g>
     </svg>
   );
@@ -132,5 +132,5 @@ export function BrandMark({ className }: { className?: string }) {
  * without the mark standing in for a letter.
  */
 export function Wordmark({ className }: { className?: string }) {
-  return <span className={cn("astro-wordmark", className)}>Alidade</span>;
+  return <span className={cn("alidade-wordmark", className)}>Alidade</span>;
 }

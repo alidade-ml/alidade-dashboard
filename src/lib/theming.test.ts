@@ -110,7 +110,7 @@ describe("the accent is never a chip or a dot", () => {
       badge.indexOf("TONE_CLASS"),
       badge.indexOf("interface StateBadgeProps"),
     );
-    for (const token of ["--primary", "--astro-accent", "bg-primary", "text-primary"]) {
+    for (const token of ["--primary", "--alidade-accent", "bg-primary", "text-primary"]) {
       assert.ok(!tone.includes(token), `state badges reference ${token}`);
     }
   });
@@ -118,7 +118,7 @@ describe("the accent is never a chip or a dot", () => {
   it("keeps status dots off the accent", () => {
     const dot = read("src", "components", "status-dot.tsx");
     const tone = dot.slice(dot.indexOf("TONE_BG"), dot.indexOf("interface Props"));
-    for (const token of ["--primary", "--astro-accent", "bg-primary"]) {
+    for (const token of ["--primary", "--alidade-accent", "bg-primary"]) {
       assert.ok(!tone.includes(token), `status dots reference ${token}`);
     }
   });

@@ -170,9 +170,9 @@ export function tokensFor(p: Preset, mode: Mode): Record<string, string> {
   // taken from the recipe rather than restated as rungs. Restating them is how
   // a ramp drifts from the table that grades it.
   const out: Record<string, string> = {
-    "--astro-paper": r.paper,
-    "--astro-ink": r.ink,
-    "--astro-accent": r.accent,
+    "--alidade-paper": r.paper,
+    "--alidade-ink": r.ink,
+    "--alidade-accent": r.accent,
     "--background": r.paper,
     "--foreground": r.ink,
     "--card-foreground": r.ink,
@@ -180,7 +180,7 @@ export function tokensFor(p: Preset, mode: Mode): Record<string, string> {
     "--secondary-foreground": r.ink,
     "--primary": r.accent,
     "--ring": r.accent,
-    "--astro-mark-ink":
+    "--alidade-mark-ink":
       mode === "dark"
         ? toHex(DARK_MARK_INK_L, lerp(0.006, 0.026, DARK_SOFTNESS) * p.cm, p.H)
         : r.ink,
