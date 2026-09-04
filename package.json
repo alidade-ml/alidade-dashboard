@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "node --test --experimental-strip-types src/lib/*.test.ts"
+    "test": "node --test --experimental-strip-types src/lib/*.test.ts tools/*.test.ts"
   },
   "dependencies": {
     "@fontsource/cabin": "^5.3.0",

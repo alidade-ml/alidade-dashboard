@@ -3,7 +3,7 @@
 # Catches the bulk of regressions before merge. Runs both halves of
 # the dashboard:
 #   - Go API: go test + go vet
-#   - Frontend: bun install + bun run build + bun run lint
+#   - Frontend: bun install + bun run lint + bun run test + bun run build
 #
 # Motivated by the 2026-06-01 incident where test-fixture signature
 # drift landed silently across PRs #26 and #27 because nothing ran
@@ -62,6 +62,9 @@ jobs:
 
       - name: Lint
         run: bun run lint
+
+      - name: Unit tests
+        run: bun run test
 
       - name: Build
         run: bun run build
