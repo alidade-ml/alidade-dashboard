@@ -121,7 +121,9 @@ describe("the mark", () => {
       const fav = read("public", "favicons", `${p.id}.svg`);
       const style = fav.slice(fav.indexOf("<style>"), fav.indexOf("</style>"));
       const declared = new Set(style.match(/--alidade-[\w-]+(?=:)/g) ?? []);
-      const consumed = new Set((fav.match(/var\((--alidade-[\w-]+)/g) ?? []).map((m) => m.slice(4)));
+      const consumed = new Set(
+        (fav.match(/var\((--alidade-[\w-]+)/g) ?? []).map((m) => m.slice(4)),
+      );
       assert.ok(consumed.size > 0, `${p.id} favicon paints nothing through a variable`);
       for (const name of consumed) {
         assert.ok(
