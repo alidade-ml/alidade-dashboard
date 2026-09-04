@@ -4,6 +4,7 @@ import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import path from "node:path";
+import { assertBundledAssets } from "./tools/bundled-assets";
 
 // Plain Vite + TanStack Router (SPA mode) — no SSR, no Cloudflare Workers
 // runtime. The build output is a single static index.html plus an
@@ -25,6 +26,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     tsconfigPaths(),
+    assertBundledAssets(),
   ],
   resolve: {
     alias: {
