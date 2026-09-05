@@ -6,7 +6,9 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi"] },
+  // alidade_dashboard/ is the wheel staging dir the hatchling hook fills with
+  // a copy of dist/. Gitignored, minified, and not ours to lint.
+  { ignores: ["dist", "alidade_dashboard", ".output", ".vinxi"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
