@@ -26,6 +26,12 @@ on:
 
 # softprops/action-gh-release needs write access to the contents
 # (releases live under repo contents) to attach assets to the release.
+# Never cancels: this publishes artifacts, and a half-finished
+# release is worse than a duplicated one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
