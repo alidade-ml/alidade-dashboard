@@ -14,7 +14,7 @@ import { api } from "@/lib/api";
 import type { Experiment, ExperimentState, Run } from "@/lib/types";
 import type { SearchParams } from "@/routes/index";
 import { usePolling } from "@/hooks/use-polling";
-import { formatRelative, formatTimestamp, inferRepo, isActiveState, shortHash } from "@/lib/format";
+import { formatRelative, formatSpendCents, formatTimestamp, inferRepo, isActiveState, shortHash } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PAGE_SIZE, pageWindow, pageSlice } from "@/lib/paging";
 
@@ -603,13 +603,7 @@ interface KpiProps {
  * without needing a "→" or other gestural cruft.
  */
 function SpendKpiCard({ cents }: { cents: number | undefined }) {
-  const value =
-    cents === undefined
-      ? "—"
-      : `$${(cents / 100).toLocaleString(undefined, {
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 0,
-        })}`;
+  const value = formatSpendCents(cents);
   return (
     <Link
       to="/cost"

@@ -136,3 +136,20 @@ export function inferRepo(exp: { repo?: string | null; name: string }): string {
   if (slash > 0) return exp.name.slice(0, slash);
   return "default";
 }
+
+/**
+ * Render a 30-day spend total from cents.
+ *
+ * Whole dollars is the right read at canary scale and above, but it rounds
+ * every sub-dollar total to `$0` — which reads as "cost is not populated"
+ * exactly when someone has been told to check that it is. Under $10 the
+ * cents are what carry the information, so they are shown.
+ */
+export function formatSpendCents(cents: number | null | undefined): string {
+  if (cents == null || !isFinite(cents)) return "—";
+  const digits = Math.abs(cents) < 1000 ? 2 : 0;
+  return `$${(cents / 100).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
+}
