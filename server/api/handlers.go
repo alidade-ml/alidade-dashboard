@@ -231,6 +231,7 @@ type IncludeEntry struct {
 	// Values:
 	//   "experiment"  — matched an Aim experiment name (multi-run)
 	//   "hash"        — matched a single Aim run hash
+	//   "submit"      — matched an alidade.submit_id tag; every run of it
 	//   "run-name"    — matched a run.name across the corpus; resolves
 	//                   to the SINGLE most recent matching run by
 	//                   CreationTime (not every match — researchers
@@ -645,13 +646,13 @@ func (h *Handler) evaluatedModelDetails(evaluated, produced map[string]bool) []R
 //
 //  1. Hash       — input matches /^[a-f0-9]{16,}$/. Treated as an Aim run
 //     hash and looked up directly. Single-run include.
-//  2. Experiment — input exact-matches an Aim experiment name. Multi-run
-//     include (every run of that experiment).
-//  3. Run name   — input exact-matches an Aim run.name across all
-//     experiments. Pulls every matching run; type becomes
-//     "run-name-multi" when matches span >1 experiment so
-//     the frontend can flag the wider scope.
-//  4. Unknown    — no match. Returned with type="unknown" and an empty
+//  2. Submit id  — input is UUID-shaped and matches a run's alidade.submit_id
+//     tag. Every live run of that submit; type "submit".
+//  3. Experiment — input exact-matches an Aim experiment name. The runs of
+//     its newest version.
+//  4. Run name   — input exact-matches an Aim run.name across all
+//     experiments. The single most recent match.
+//  5. Unknown    — no match. Returned with type="unknown" and an empty
 //     Runs slice so the frontend can render a struck-out
 //     chip rather than silently dropping the include.
 //
@@ -741,12 +742,13 @@ func versionOrdinal(label string) (int, bool) {
 	return n, true
 }
 
-// resolveIncludeByQuery applies the four-shape resolution order using
+// resolveIncludeByQuery applies the five-shape resolution order using
 // Aim's search endpoint instead of an index of the whole project.
 //
 // The shapes, and what each costs now:
 //
 //	hash        one query, exact
+//	submit id   one tag query, only for a UUID-shaped string
 //	experiment  one query, exact
 //	run name    one query, then a sort here — Aim can filter on
 //	            run.name but cannot do "most recent matching", so the
@@ -780,7 +782,27 @@ func (h *Handler) resolveIncludeByQuery(incName string) IncludeEntry {
 		// Hash-shaped but unknown to Aim — fall through, as before.
 	}
 
-	// 2. Aim experiment name — exact match, newest version only.
+	// 2. Submit id — the identifier `alidade submit` prints, and so the one
+	// a researcher has in hand. Every live run that submit produced.
+	if isSubmitIDLike(incName) {
+		if runs, err := h.aim.SearchRuns(QueryByTag(TagSubmitID, incName)); err == nil {
+			for _, r := range runs {
+				if r.Archived {
+					continue
+				}
+				entry.Runs = append(entry.Runs, r.Hash)
+				if entry.Type == "unknown" {
+					entry.Type = "submit"
+					entry.Name = strings.TrimSpace(r.ExperimentName + " " + AlidadeTagsFromParams(r.Params).Version)
+				}
+			}
+			if len(entry.Runs) > 0 {
+				return entry
+			}
+		}
+	}
+
+	// 3. Aim experiment name — exact match, newest version only.
 	//
 	// intended-behavior.md section 2: an include resolves "against the most
 	// recent submit of that experiment". Returning every version instead
@@ -796,7 +818,7 @@ func (h *Handler) resolveIncludeByQuery(incName string) IncludeEntry {
 		}
 	}
 
-	// 3. Run name — narrowed to the SINGLE most recent match across all
+	// 4. Run name — narrowed to the SINGLE most recent match across all
 	// experiments. The same run.name commonly appears in many
 	// experiments (e.g. "alidade_test" is the inner training name for
 	// several configs); pulling every match flooded the comparison set.
@@ -812,9 +834,29 @@ func (h *Handler) resolveIncludeByQuery(incName string) IncludeEntry {
 		return entry
 	}
 
-	// 4. No match. Empty Runs, type="unknown" — the frontend renders a
+	// 5. No match. Empty Runs, type="unknown" — the frontend renders a
 	// struck-out chip so the operator sees the dropped include.
 	return entry
+}
+
+// isSubmitIDLike matches the 8-4-4-4-12 hex shape of a submit id, so a
+// plain name never costs a tag query.
+func isSubmitIDLike(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if c != '-' {
+				return false
+			}
+			continue
+		}
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func isHashLike(s string) bool {

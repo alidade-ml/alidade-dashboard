@@ -33,7 +33,8 @@ type fakeRunRow struct {
 	archived     bool
 	// Empty means the run carries no alidade.version tag, which is what
 	// a repo predating version tagging looks like.
-	version string
+	version  string
+	submitID string
 }
 
 func encodeSearchBody(rows []fakeRunRow) []byte {
@@ -49,6 +50,9 @@ func encodeSearchBody(rows []fakeRunRow) []byte {
 		add(encPath(r.hash, "props", "experiment", "name"), encVal(r.experiment))
 		if r.version != "" {
 			add(encPath(r.hash, "params", "alidade.version"), encVal(r.version))
+		}
+		if r.submitID != "" {
+			add(encPath(r.hash, "params", "alidade.submit_id"), encVal(r.submitID))
 		}
 	}
 	// A streaming marker, so every test exercises the filter that drops it.
@@ -72,7 +76,8 @@ func fakeSearchAim(t *testing.T, rows []fakeRunRow, searches, infos *int32) *Aim
 			q, _ := url.QueryUnescape(r.URL.Query().Get("q"))
 			var matched []fakeRunRow
 			for _, row := range rows {
-				if q == QueryByExperiment(row.experiment) || q == QueryByRunName(row.name) {
+				if q == QueryByExperiment(row.experiment) || q == QueryByRunName(row.name) ||
+					(row.submitID != "" && q == QueryByTag(TagSubmitID, row.submitID)) {
 					matched = append(matched, row)
 				}
 			}
@@ -212,6 +217,65 @@ func TestQueryResolve_UnreachableAimIsUnknownNotAnError(t *testing.T) {
 	got := h.resolveIncludeByQuery("exp-A")
 	if got.Type != "unknown" {
 		t.Fatalf("type = %q, want unknown", got.Type)
+	}
+}
+
+// --- the submit id, which is what `alidade submit` prints ---
+
+const printedSubmitID = "aff23926-3159-40b3-84af-043984183efc"
+
+func submitFixture() []fakeRunRow {
+	return []fakeRunRow{
+		{hash: "a1b2c3d4e5f60708090a0b0c", name: "train", experiment: "s005", creationTime: 100, version: "v2", submitID: printedSubmitID},
+		{hash: "b1b2c3d4e5f60708090a0b0c", name: "eval", experiment: "s005", creationTime: 200, version: "v2", submitID: printedSubmitID},
+		{hash: "c1b2c3d4e5f60708090a0b0c", name: "old", experiment: "s005", creationTime: 300, version: "v2", submitID: printedSubmitID, archived: true},
+		{hash: "d1b2c3d4e5f60708090a0b0c", name: "train", experiment: "s005", creationTime: 400, version: "v3", submitID: "0e4c1b55-9f0a-4c41-8a7e-5b9d3c2f1a00"},
+	}
+}
+
+func TestQueryResolve_AnUnknownSubmitIDIsUnknown(t *testing.T) {
+	got := resolverFor(t, submitFixture()).resolveIncludeByQuery("ffffffff-ffff-ffff-ffff-ffffffffffff")
+	if got.Type != "unknown" || len(got.Runs) != 0 {
+		t.Fatalf("got %+v, want an unknown with no runs", got)
+	}
+}
+
+func TestQueryResolve_ANameIsNeverAskedAsASubmitID(t *testing.T) {
+	var searches int32
+	h := NewHandler(fakeSearchAim(t, submitFixture(), &searches, nil), nil, nil)
+	h.resolveIncludeByQuery("s005")
+	if got := atomic.LoadInt32(&searches); got != 1 {
+		t.Fatalf("%d searches for an experiment name; the submit-id query must not run", got)
+	}
+}
+
+func TestQueryResolve_ASubmitIDBringsEveryLiveRunOfThatSubmitOnly(t *testing.T) {
+	got := resolverFor(t, submitFixture()).resolveIncludeByQuery(printedSubmitID)
+	if got.Type != "submit" {
+		t.Fatalf("type = %q, want submit", got.Type)
+	}
+	want := []string{"a1b2c3d4e5f60708090a0b0c", "b1b2c3d4e5f60708090a0b0c"}
+	if strings.Join(got.Runs, ",") != strings.Join(want, ",") {
+		t.Errorf("runs = %v, want %v (archived and other submits left out)", got.Runs, want)
+	}
+	if got.Name != "s005 v2" {
+		t.Errorf("name = %q, want the experiment and version so the chip is readable", got.Name)
+	}
+}
+
+func TestIsSubmitIDLike(t *testing.T) {
+	for s, want := range map[string]bool{
+		printedSubmitID:                         true,
+		"AFF23926-3159-40B3-84AF-043984183EFC":  false,
+		"aff23926315940b384af043984183efc":      false,
+		"aff23926-3159-40b3-84af-043984183ef":   false,
+		"aff23926-3159-40b3-84af-043984183efcd": false,
+		"aff23926x3159-40b3-84af-043984183efc":  false,
+		"gff23926-3159-40b3-84af-043984183efc":  false,
+	} {
+		if got := isSubmitIDLike(s); got != want {
+			t.Errorf("isSubmitIDLike(%q) = %v, want %v", s, got, want)
+		}
 	}
 }
 
