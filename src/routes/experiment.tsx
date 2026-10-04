@@ -488,6 +488,11 @@ function ExperimentBody({
                 </span>
               )}
               {experiment && <StateBadge state={experiment.state} />}
+              {!!experiment?.healing_attempts && (
+                <span className="text-xs text-muted-foreground font-mono">
+                  healing attempted {experiment.healing_attempts}×
+                </span>
+              )}
               {live && (
                 <span className="rounded bg-[color-mix(in_oklab,var(--info)_15%,transparent)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--info)] uppercase tracking-wider">
                   live

@@ -21,6 +21,7 @@ package api
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"sort"
 	"time"
@@ -329,7 +330,8 @@ func computeRunCents(r costRun, now time.Time) *int {
 	if hoursPtr == nil {
 		return nil
 	}
-	c := int(float64(r.RateCents) * (*hoursPtr))
+	// Half-to-even, as Python's round() does: the CLI and Slack price the same run.
+	c := int(math.RoundToEven(float64(r.RateCents) * (*hoursPtr)))
 	return &c
 }
 

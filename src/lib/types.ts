@@ -63,6 +63,8 @@ export interface ExperimentDetail {
   version_count: number;
   state_history?: { state: ExperimentState; at: string }[];
   submitted_by?: string;
+  /** Healer sessions on the newest submit. Attempts, not confirmed fixes. */
+  healing_attempts?: number;
 }
 
 export interface RunMetricRef {

@@ -315,6 +315,8 @@ type ExperimentDetail struct {
 	VersionCount int               `json:"version_count"`
 	StateHistory []StateTransition `json:"state_history,omitempty"`
 	SubmittedBy  string            `json:"submitted_by,omitempty"`
+	// Healer sessions, not fixes: a session can report success and the retry still fail.
+	HealingAttempts int `json:"healing_attempts"`
 }
 
 // HandleExperimentDetail returns one experiment's header metadata.
@@ -361,8 +363,9 @@ func (h *Handler) HandleExperimentDetail(w http.ResponseWriter, r *http.Request)
 		Repo:         state.Repo,
 		LinearDocURL: state.LinearDocURL,
 		VersionCount: versions,
-		StateHistory: state.StateHistory,
-		SubmittedBy:  state.SubmittedBy,
+		StateHistory:    state.StateHistory,
+		SubmittedBy:     state.SubmittedBy,
+		HealingAttempts: state.HealingAttempts,
 	})
 }
 
