@@ -38,7 +38,7 @@ The simplest path. The Go server runs on the NUC at `http://<nuc>:43801` and exp
 | `GET`  | `/api/runs/{hash}/metrics/{name}`  | Time-series for one metric (steps, values, wall_times)                                                    |
 | `GET`  | `/api/runs/{hash}/evals`           | Eval-discovery manifest: eval Aim runs that score this training run (one per task_set, deduped by newest). `404` if the hash is not a run — an empty list means the model has no evals, and the two are different answers |
 | `GET`  | `/api/config/colors`               | Color palette for chart rendering                                                                         |
-| `GET`  | `/api/health`                      | Connectivity check against upstream Aim API                                                               |
+| `GET`  | `/api/health`                      | Connectivity check against upstream Aim API; `state_db` is `ok`, or `unavailable: <reason>` before the engine's first submit |
 
 Path params (`{name}`, `{hash}`) accept anything — metric names commonly contain slashes (`train/loss`, `val/MaskedLanguagePerplexity`, `eval/cola/matthews`). URL-encode if your client doesn't.
 
