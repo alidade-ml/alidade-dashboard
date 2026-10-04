@@ -193,6 +193,34 @@ func TestRunWithoutRateAndNoFallbackContributesNil(t *testing.T) {
 	}
 }
 
+// TestRunCentsRoundLikeTheCLI: alidade prices a run with Python's round(), so
+// a sub-cent run truncated here showed $0.00 beside the CLI's $0.01.
+func TestRunCentsRoundLikeTheCLI(t *testing.T) {
+	start := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name      string
+		rateCents int
+		seconds   int
+		want      int
+	}{
+		{"30s at $0.75/hr is 0.625 cents", 75, 30, 1},
+		{"a half rounds to even, down", 60, 30, 0},
+		{"a half rounds to even, up", 60, 90, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := costRun{
+				RateCents: tc.rateCents, HasRate: true, Started: start,
+				Ended: start.Add(time.Duration(tc.seconds) * time.Second),
+			}
+			got := computeRunCents(r, start.Add(time.Hour))
+			if got == nil || *got != tc.want {
+				t.Fatalf("cents = %v, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestLocalBackendZeroRateZeroContribution covers the "free" path:
 // LocalExecutor writes rate=0 (not NULL) so the run counts but
 // contributes nothing to spend totals.

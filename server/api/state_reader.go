@@ -98,6 +98,7 @@ type ExperimentState struct {
 	SubmittedBy         string            `json:"submitted_by"`
 	GPURateCentsPerHour *int              `json:"gpu_rate_cents_per_hour"`
 	EstimatedCostCents  *int              `json:"estimated_cost_cents"`
+	HealingAttempts     int               `json:"healing_attempts"`
 }
 
 // submitColumns is the SELECT list used by every "load submit" query.
@@ -341,7 +342,6 @@ func scanSubmit(sc scanner) (*ExperimentState, string, error) {
 		return nil, "", err
 	}
 	_ = pid // not surfaced in the JSON shape
-	_ = healingAttempts
 	_ = aimMetadataRunHash
 	_ = linearDocID
 	_ = instanceID
@@ -363,6 +363,7 @@ func scanSubmit(sc scanner) (*ExperimentState, string, error) {
 		Version:          version,
 		SubmitID:         submitID,
 		SubmittedBy:      submittedBy,
+		HealingAttempts:  healingAttempts,
 	}
 	if gpuRateCentsPerHour.Valid {
 		v := int(gpuRateCentsPerHour.Int64)

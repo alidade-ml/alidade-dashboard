@@ -151,6 +151,20 @@ func TestExperimentDetailNameNeedingEncoding(t *testing.T) {
 	}
 }
 
+func TestExperimentDetailCarriesHealingAttempts(t *testing.T) {
+	h := detailHandler(t, func(db *sql.DB) {
+		submit(t, db, "exp", "v1", "exp-v1", "2026-08-01T00:00:00+00:00", nil)
+		// insertSubmit drops columns it does not list, so set this one directly.
+		if _, err := db.Exec(`UPDATE submits SET healing_attempts = 3 WHERE submit_id = 'exp-v1'`); err != nil {
+			t.Fatal(err)
+		}
+	})
+	_, got := getDetail(t, h, "exp")
+	if got.HealingAttempts != 3 {
+		t.Errorf("healing_attempts = %d, want 3: the page has no other source", got.HealingAttempts)
+	}
+}
+
 // --- Happy paths ---
 
 func TestExperimentDetailUsesNewestSubmit(t *testing.T) {
