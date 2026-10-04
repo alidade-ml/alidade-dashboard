@@ -15,11 +15,46 @@ import (
 // Handler holds route handlers and the Aim client.
 type Handler struct {
 	aim    *AimClient
-	state  *StateReader
 	colors []string
+
+	stateMu    sync.Mutex
+	state      *StateReader
+	statePath  string
+	stateErr   error
+	stateTried time.Time
 
 	runCounts runCountCache
 	blobURIs  blobURICache
+}
+
+// stateRetryInterval bounds how often a missing state DB is looked for again.
+var stateRetryInterval = 2 * time.Second
+
+// NewHandlerAt creates a Handler reading the state DB at statePath. A missing
+// file is not fatal: on a fresh NUC the engine creates it only at its first
+// submit, so the handler looks for it again on use. The error says why the
+// first open failed, for the caller to log.
+func NewHandlerAt(aim *AimClient, statePath string, colors []string) (*Handler, error) {
+	state, err := NewStateReader(statePath)
+	h := NewHandler(aim, state, colors)
+	h.statePath = statePath
+	h.stateErr = err
+	return h, err
+}
+
+// stateDB returns the reader, opening it if it has appeared since the last try.
+func (h *Handler) stateDB() *StateReader {
+	h.stateMu.Lock()
+	defer h.stateMu.Unlock()
+	if h.state != nil || h.statePath == "" {
+		return h.state
+	}
+	if !h.stateTried.IsZero() && time.Since(h.stateTried) < stateRetryInterval {
+		return nil
+	}
+	h.stateTried = time.Now()
+	h.state, h.stateErr = NewStateReader(h.statePath)
+	return h.state
 }
 
 // NewHandler creates a Handler with the given Aim client, state reader, and color palette.
@@ -236,10 +271,10 @@ func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
 
 	var experiments []ExperimentSummary
 
-	if h.state != nil {
+	if st := h.stateDB(); st != nil {
 		// ListSummaries, not ListAll: this endpoint renders neither
 		// includes nor git tags, and ListAll fetches both per submit.
-		states, err := h.state.ListSummaries()
+		states, err := st.ListSummaries()
 		if err == nil {
 			// Track distinct versions per experiment so the home-page
 			// "vN of M" badge counts ALL submits, not just those with
@@ -335,19 +370,20 @@ func (h *Handler) HandleExperimentDetail(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "missing experiment name", http.StatusBadRequest)
 		return
 	}
-	if h.state == nil {
+	st := h.stateDB()
+	if st == nil {
 		http.Error(w, "no state DB", http.StatusServiceUnavailable)
 		return
 	}
 
-	state, err := h.state.GetState(name)
+	state, err := st.GetState(name)
 	if err != nil || state == nil {
 		// 404 rather than an empty 200: a blank header is indistinguishable
 		// from a slow load, and sends the reader to the wrong question.
 		http.NotFound(w, r)
 		return
 	}
-	versions, err := h.state.CountVersions(name)
+	versions, err := st.CountVersions(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -634,13 +670,14 @@ func (h *Handler) HandleExperimentIncludes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if h.state == nil {
+	st := h.stateDB()
+	if st == nil {
 		writeJSON(w, map[string]interface{}{"includes": []IncludeEntry{}})
 		return
 	}
 
 	version := r.URL.Query().Get("version")
-	includeNames, err := h.state.GetIncludes(name, version)
+	includeNames, err := st.GetIncludes(name, version)
 	if err != nil || len(includeNames) == 0 {
 		writeJSON(w, map[string]interface{}{"includes": []IncludeEntry{}})
 		return
@@ -1106,7 +1143,18 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{"status": "error", "message": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]string{"status": "ok"})
+	// A missing state DB is normal before the first submit, so it does not
+	// fail the check, but it is named rather than hidden behind "ok".
+	stateDB := "ok"
+	if h.stateDB() == nil {
+		h.stateMu.Lock()
+		stateDB = "unavailable"
+		if h.stateErr != nil {
+			stateDB += ": " + h.stateErr.Error()
+		}
+		h.stateMu.Unlock()
+	}
+	writeJSON(w, map[string]string{"status": "ok", "state_db": stateDB})
 }
 
 // --- Helpers ---

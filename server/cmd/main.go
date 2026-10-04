@@ -48,15 +48,10 @@ func main() {
 
 	// Create Aim client, state reader, and handler.
 	aimClient := api.NewAimClient(*aimURL)
-	stateReader, err := api.NewStateReader(*stateDB)
+	handler, err := api.NewHandlerAt(aimClient, *stateDB, colors)
 	if err != nil {
-		// Soft-fail: the engine may not have written its first submit
-		// yet (fresh NUC). Log and proceed with a nil reader; handlers
-		// degrade to "no experiments" rather than refusing to serve.
 		log.Printf("Warning: state DB unavailable at %s (%v); experiments list will be empty until the engine writes its first submit", *stateDB, err)
-		stateReader = nil
 	}
-	handler := api.NewHandler(aimClient, stateReader, colors)
 
 	// Response caches. TTLs and bounds chosen per plans/dashboard-scaling.md:
 	//   - 2s on state-shaped endpoints (experiments list + per-experiment

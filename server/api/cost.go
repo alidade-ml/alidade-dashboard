@@ -134,12 +134,13 @@ func (h *Handler) HandleCost(w http.ResponseWriter, r *http.Request) {
 		Experiments: []CostExperimentEntry{},
 	}
 
-	if h.state == nil {
+	st := h.stateDB()
+	if st == nil {
 		writeJSON(w, empty)
 		return
 	}
 
-	allRuns, err := h.gatherCostRuns()
+	allRuns, err := h.gatherCostRuns(st)
 	if err != nil {
 		// State DB unreachable — render empty rather than 500. Cost is
 		// derived data; a transient outage shouldn't 5xx the page.
@@ -252,8 +253,8 @@ func billingWindow(s ExperimentState) (started, ended time.Time, active bool) {
 // per-run fan-out, no Aim hops. ``gpu_rate_cents_per_hour`` may be
 // NULL — those rows surface as cents=nil in the UI but still count
 // toward submit/hour totals.
-func (h *Handler) gatherCostRuns() ([]costRun, error) {
-	states, err := h.state.ListAll()
+func (h *Handler) gatherCostRuns(st *StateReader) ([]costRun, error) {
+	states, err := st.ListAll()
 	if err != nil {
 		return nil, err
 	}
