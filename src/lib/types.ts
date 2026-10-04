@@ -128,9 +128,10 @@ export function isTrainingRun(run: Run): boolean {
 /**
  * Resolution shape for a single --include argument, returned from
  * /api/experiments/{name}/includes. The Go API resolves each include
- * against four shapes: hash → experiment name → run name → unknown.
+ * against five shapes: hash → submit id → experiment name → run name → unknown.
  *
  * - "hash":       single Aim run hash matched directly
+ * - "submit":     the submit id `alidade submit` prints; every run of it
  * - "experiment": Aim experiment name matched (multi-run)
  * - "run-name":   Aim run.name matched somewhere in the corpus;
  *                 resolves to the SINGLE most recent matching run
@@ -140,7 +141,7 @@ export function isTrainingRun(run: Run): boolean {
  *                 include as a struck-out chip rather than silently
  *                 dropping it
  */
-export type IncludeType = "hash" | "experiment" | "run-name" | "unknown";
+export type IncludeType = "hash" | "submit" | "experiment" | "run-name" | "unknown";
 
 export interface IncludeGroup {
   name: string;

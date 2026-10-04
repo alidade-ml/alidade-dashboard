@@ -129,9 +129,9 @@ Each side of a pair is either text (`input_text` / `output_text`) or an image UR
 }
 ```
 
-`type` is one of `experiment` / `hash` / `run-name` / `unknown`. `name` is always the human-readable display string for the chip — even when type=hash, `name` is the resolved Aim run.name, not the input hash.
+`type` is one of `hash` / `submit` / `experiment` / `run-name` / `unknown`. `name` is always the human-readable display string for the chip — even when type=hash, `name` is the resolved Aim run.name, not the input hash, and when type=submit it is `<experiment> <version>`, not the submit id.
 
-**`type: experiment` resolves to that experiment's most recent version only.** Naming an experiment is a shortcut to "whatever is current", and it keeps moving as the experiment is resubmitted. To pin a specific version, include its submit hash — that resolves exactly one run and never drifts. A repo predating version tagging resolves to every run, since there is no version to pick.
+**`type: experiment` resolves to that experiment's most recent version only.** Naming an experiment is a shortcut to "whatever is current", and it keeps moving as the experiment is resubmitted. To pin a specific version, include its submit id (the one `alidade submit` prints) or a run hash. Both resolve one version and never drift. A repo predating version tagging resolves to every run, since there is no version to pick.
 
 ### Quick example: Streamlit dashboard
 
@@ -308,9 +308,10 @@ User-named metrics pass through unchanged. `MaskedLanguagePerplexity`, `throughp
 When users reference runs via `--include`, the resolver tries (in order):
 
 1. **Hash** — strict hex check, ≥16 chars; exact match against Aim run hashes.
-2. **Aim experiment name** — exact match; pulls all runs in that experiment.
-3. **Run name** — exact match against `run.name`; resolves to the **single most recent** matching run by creation time.
-4. **Unknown** — returned as a struck-out chip in the UI rather than silently dropped.
+2. **Submit id** — UUID-shaped (`8-4-4-4-12` lowercase hex); every live run tagged with that `alidade.submit_id`.
+3. **Aim experiment name** — exact match; the runs of its newest version.
+4. **Run name** — exact match against `run.name`; resolves to the **single most recent** matching run by creation time.
+5. **Unknown** — returned as a struck-out chip in the UI rather than silently dropped.
 
 Order matters: a hash-shaped string that doesn't resolve as a hash falls through, but most realistic experiment names won't collide with the hash-like detector.
 
