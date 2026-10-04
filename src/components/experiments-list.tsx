@@ -14,7 +14,14 @@ import { api } from "@/lib/api";
 import type { Experiment, ExperimentState, Run } from "@/lib/types";
 import type { SearchParams } from "@/routes/index";
 import { usePolling } from "@/hooks/use-polling";
-import { formatRelative, formatSpendCents, formatTimestamp, inferRepo, isActiveState, shortHash } from "@/lib/format";
+import {
+  formatRelative,
+  formatSpendCents,
+  formatTimestamp,
+  inferRepo,
+  isActiveState,
+  shortHash,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PAGE_SIZE, pageWindow, pageSlice } from "@/lib/paging";
 
