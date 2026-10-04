@@ -24,6 +24,7 @@
  * are canvas-drawn from a seed. The grouping, which is the part under test,
  * runs on data shaped exactly like the producer writes.
  */
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { SampleGroupingPanel } from "@/components/sample-grouping-panel";
@@ -46,6 +47,8 @@ import {
   type SampleView,
 } from "@/lib/sample-grouping";
 import { FixtureControls } from "@/components/fixture-controls";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { scrollCue, type ScrollCue } from "@/lib/scroll-cue";
 import { MODEL_COLORS, MODEL_HASHES, type SampleRow } from "@/lib/sample-fixtures";
 import { DEFAULT_SHAPE, generateSamples, type FixtureShape } from "@/lib/sample-generator";
 import { cn } from "@/lib/utils";
@@ -139,6 +142,9 @@ function SampleTile({ seed, noisy, size = 104 }: { seed: number; noisy?: boolean
  * image that fails to load must show as broken rather than quietly
  * substituting generated art, because a plausible wrong picture is worse
  * than a visibly missing one.
+ *
+ * Every thumbnail opens the image full size in a dialog, so judging one never
+ * means leaving the run's page.
  */
 function SampleImage({
   src,
@@ -153,23 +159,80 @@ function SampleImage({
   size?: number;
   alt: string;
 }) {
-  if (src) {
-    return (
+  if (!src && seed === undefined) return null;
+  const label = alt || "input image";
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Enlarge ${label}`}
+          title="Click to enlarge"
+          className="block w-full cursor-zoom-in rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          style={{ maxWidth: size }}
+        >
+          {src ? (
+            <img
+              src={src}
+              alt={alt}
+              // Native lazy loading: a grid can hold dozens of images and each
+              // is its own request to Aim. Off-screen cells cost nothing until
+              // they are scrolled to.
+              loading="lazy"
+              decoding="async"
+              className="block w-full rounded border border-border bg-muted object-contain"
+              style={{ aspectRatio: "1 / 1", height: "auto" }}
+            />
+          ) : (
+            <SampleTile seed={seed as number} noisy={noisy} size={size} />
+          )}
+        </button>
+      </DialogTrigger>
+      <DialogContent className="w-auto max-w-[96vw] gap-2 p-4 pt-10">
+        <DialogTitle className="sr-only">{label}</DialogTitle>
+        {src ? (
+          <FullSizeImage src={src} alt={label} />
+        ) : (
+          <SampleTile seed={seed as number} noisy={noisy} size={512} />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Small images are scaled up to this, pixel for pixel, so they can be seen. */
+const MIN_ENLARGED_PX = 256;
+
+/** At its own size, shrunk to fit the viewport and never past it. */
+function FullSizeImage({ src, alt }: { src: string; alt: string }) {
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  const scale = natural ? Math.max(1, MIN_ENLARGED_PX / Math.max(natural.w, natural.h)) : 1;
+  return (
+    <figure className="flex flex-col items-center gap-2">
       <img
         src={src}
         alt={alt}
-        // Native lazy loading: a grid can hold dozens of images and each
-        // is its own request to Aim. Off-screen cells cost nothing until
-        // they are scrolled to.
-        loading="lazy"
-        decoding="async"
-        className="block w-full rounded border border-border bg-muted object-contain"
-        style={{ maxWidth: size, aspectRatio: "1 / 1", height: "auto" }}
+        onLoad={(e) =>
+          setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+        }
+        className="block max-h-[82vh] max-w-full rounded bg-muted object-contain"
+        style={
+          natural
+            ? {
+                width: natural.w * scale,
+                imageRendering: scale > 1 ? "pixelated" : undefined,
+              }
+            : undefined
+        }
       />
-    );
-  }
-  if (seed === undefined) return null;
-  return <SampleTile seed={seed} noisy={noisy} size={size} />;
+      {natural && (
+        <figcaption className="font-mono text-[11px] text-muted-foreground">
+          {natural.w} × {natural.h}
+          {scale > 1 && ` · shown ${Math.round(scale * 100)}%`}
+        </figcaption>
+      )}
+    </figure>
+  );
 }
 
 /** An image input is either a real URL or a workbench seed. Both call
@@ -286,7 +349,7 @@ function Heading({
         const thumb =
           c.dim === "input" ? rows?.find((r) => dimensionValue(r, "input") === c.value) : undefined;
         return (
-          <span key={`${c.dim}:${c.value}`} className="flex items-center gap-1.5">
+          <span key={`${c.dim}:${c.value}`} className="flex min-w-0 items-center gap-1.5">
             {i > 0 && <span className="text-muted-foreground/60">›</span>}
             {c.dim === "model" && <ModelSwatch model={c.value} />}
             {thumb && hasInputImage(thumb) && (
@@ -386,7 +449,7 @@ function BlockView({ block, allRows }: { block: PlannedBlock; allRows: SampleRow
     : `repeat(${block.columns.length}, minmax(${minColumn}px, 1fr))`;
 
   return (
-    <div className="overflow-x-auto pb-1">
+    <ScrollStrip>
       <div className="grid gap-x-4 gap-y-3" style={{ gridTemplateColumns: template }}>
         {block.columnDim !== null && (
           <>
@@ -405,7 +468,9 @@ function BlockView({ block, allRows }: { block: PlannedBlock; allRows: SampleRow
         {block.rows.map((row, ri) => (
           <Fragment key={`r-${ri}-${row.crumbs.map((c) => c.value).join("/")}`}>
             {labelled && (
-              <div className="flex items-center border-t border-dashed border-border pt-2">
+              // min-w-0: a grid item's floor is its content, so a long label
+              // spilled out of its 140px track and printed over the first column.
+              <div className="flex min-w-0 items-center overflow-hidden border-t border-dashed border-border pt-2">
                 <Heading crumbs={row.crumbs} depth={1} rows={row.rows} />
               </div>
             )}
@@ -436,6 +501,67 @@ function BlockView({ block, allRows }: { block: PlannedBlock; allRows: SampleRow
           </Fragment>
         ))}
       </div>
+    </ScrollStrip>
+  );
+}
+
+/**
+ * A horizontal strip that says when it is hiding columns. Without the cue a
+ * set wider than its card was cut mid-word, and macOS hides the scrollbar.
+ */
+function ScrollStrip({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [cue, setCue] = useState<ScrollCue>({ before: false, after: false });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setCue(scrollCue(el.scrollLeft, el.scrollWidth, el.clientWidth));
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, []);
+
+  const nudge = (direction: 1 | -1) =>
+    ref.current?.scrollBy({ left: direction * ref.current.clientWidth * 0.8, behavior: "smooth" });
+
+  return (
+    <div className="relative">
+      <div ref={ref} className="overflow-x-auto pb-1" data-scroll-strip>
+        {children}
+      </div>
+      {cue.before && <EdgeCue side="before" onClick={() => nudge(-1)} />}
+      {cue.after && <EdgeCue side="after" onClick={() => nudge(1)} />}
+    </div>
+  );
+}
+
+function EdgeCue({ side, onClick }: { side: "before" | "after"; onClick: () => void }) {
+  const Icon = side === "after" ? ChevronRight : ChevronLeft;
+  return (
+    <div
+      data-scroll-cue={side}
+      className={cn(
+        "pointer-events-none absolute inset-y-0 flex w-12 items-center",
+        side === "after"
+          ? "right-0 justify-end bg-gradient-to-l from-card to-transparent"
+          : "left-0 justify-start bg-gradient-to-r from-card to-transparent",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={side === "after" ? "Scroll to later samples" : "Scroll to earlier samples"}
+        className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:text-foreground"
+      >
+        <Icon className="h-4 w-4" />
+      </button>
     </div>
   );
 }

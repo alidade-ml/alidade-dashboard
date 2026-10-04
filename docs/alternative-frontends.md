@@ -2,7 +2,7 @@
 
 A practitioner's cookbook for surfacing alidade's data outside the bundled dashboard. Aimed at someone who wants to display experiments / runs / metrics in Linear, Notion, a Slack bot, a Streamlit dashboard, an internal tool — without forking this repo.
 
-> **Status as of v1.6.x**: the canonical UI (this dashboard) covers training-time scalar metrics and orchestration metadata. Anything richer (attention maps, gradient histograms, sample outputs) is out of first-class scope by design — alidade owns the lifecycle and comparison story; Aim owns the data-lake. The escape hatches below let you build whatever surface you want without us being in the way.
+> **Status as of v1.6.x**: the canonical UI (this dashboard) covers training-time scalar metrics, orchestration metadata, and the text and image samples `log_samples` writes (the Samples tab). Other rich Aim data (gradient histograms, distributions, audio) is out of first-class scope by design — alidade owns the lifecycle and comparison story; Aim owns the data-lake. The escape hatches below let you build whatever surface you want without us being in the way.
 >
 > We'll revisit the scope question around v3, when external usage gives signal on what people actually want.
 
@@ -37,6 +37,9 @@ The simplest path. The Go server runs on the NUC at `http://<nuc>:43801` and exp
 | `GET`  | `/api/runs/{hash}/metrics`         | Available metric names for a run                                                                          |
 | `GET`  | `/api/runs/{hash}/metrics/{name}`  | Time-series for one metric (steps, values, wall_times)                                                    |
 | `GET`  | `/api/runs/{hash}/evals`           | Eval-discovery manifest: eval Aim runs that score this training run (one per task_set, deduped by newest). `404` if the hash is not a run — an empty list means the model has no evals, and the two are different answers |
+| `GET`  | `/api/runs/{hash}/samples`         | Sample-batch manifest for a **training** run: one entry per `sample_set`, newest batch wins. Pass the model run's hash, not a sample run's; a sample run has no batches of its own, so it answers `[]` |
+| `GET`  | `/api/samples/{aim_run_hash}?set={set}` | One batch's pairs, joined by step. Text arrives inline; an image arrives as a URL into `/api/samples/blob` |
+| `GET`  | `/api/samples/blob?run={aim_run_hash}&set={set}&role=input\|output&step={n}` | The bytes of one image, with its own content type. `404` for a step that holds text, or no image |
 | `GET`  | `/api/config/colors`               | Color palette for chart rendering                                                                         |
 | `GET`  | `/api/health`                      | Connectivity check against upstream Aim API                                                               |
 
@@ -100,6 +103,22 @@ kind and a consumer previously had no way to see that, or to apply its own rule.
 
 When present it is **index-aligned with `steps` and the same length**, so a frontend can zip the two without checking. Entries may be `null` only if the axis could not be resolved for a point; the array is never shorter than `steps`. It is resolved through Aim's align endpoint against the full `wall_time` series rather than by matching two separately-sampled series, so a sparse metric — a validation curve of a handful of points — gets a value at every point rather than only where two sampling grids happened to agree.
 
+**SampleBatch** — `/api/samples/{aim_run_hash}?set={set}`, where the hash is an `aim_run_hash` from the manifest:
+
+```json
+{
+  "aim_run_hash": "82e929fa325e404cac68c078",
+  "sample_set": "completions",
+  "kind": "sample",
+  "pairs": [
+    { "step": 0, "input_text": "the cat", "output_text": "sat on the mat" },
+    { "step": 1, "output_url": "/api/samples/blob?role=output&run=82e9…&set=completions&step=1" }
+  ]
+}
+```
+
+Each side of a pair is either text (`input_text` / `output_text`) or an image URL (`input_url` / `output_url`), never both. An absent input is unconditional generation, which is different from an empty-string input.
+
 **IncludeEntry** — items in `/api/experiments/{name}/includes`:
 
 ```json
@@ -149,7 +168,7 @@ def daily_digest():
 
 - **Auth.** No tokens, no per-user filtering. If your tool is shared, it sees everyone's runs.
 - **Real-time push.** Polling only — typical cadence is 5–10s in our React frontend.
-- **Non-scalar metrics.** No images, no distributions, no audio. Use Lane 2 for those.
+- **Non-scalar metrics.** Only the samples `log_samples` writes; no other images, no distributions, no audio. Use Lane 2 for those.
 - **Mutation.** Read-only. Run/experiment lifecycle is managed by `alidade submit` / `alidade stop`, not via API.
 - **Pagination.** All list endpoints return the full set. Filter / paginate client-side. Fine through ~hundreds of experiments; if you have thousands, we'd need to add pagination here.
 
@@ -157,7 +176,7 @@ def daily_digest():
 
 ## Lane 2: talk to Aim directly
 
-If you want to display non-scalar data (attention maps logged via `aim.Image`, gradient distributions via `aim.Distribution`, sample outputs via `aim.Text`), this dashboard's Go API won't surface them — by design. They're in Aim, queryable from anywhere.
+If you want to display non-scalar data the Samples tab does not cover (an `aim.Image` you tracked yourself, gradient distributions via `aim.Distribution`), this dashboard's Go API won't surface it, by design. Samples written by `log_samples` are the exception; read those through the sample routes in Lane 1. They're in Aim, queryable from anywhere.
 
 ### What's in Aim
 
@@ -301,7 +320,7 @@ Order matters: a hash-shaped string that doesn't resolve as a hash falls through
 
 Things we deliberately don't surface, and why:
 
-- **Image / distribution / audio rendering in this dashboard.** Aim already handles these well; competing with Aim's UI for the rich types isn't worth the engineering cost or the divergence risk. Use Lane 2 (Aim directly) or Aim's own Web UI.
+- **Image / distribution / audio rendering in this dashboard,** beyond the samples `log_samples` writes. Aim already handles these well; competing with Aim's UI for the rich types isn't worth the engineering cost or the divergence risk. Use Lane 2 (Aim directly) or Aim's own Web UI.
 - **Per-user auth.** Single-tenant trusted-network deployment by design. If you need per-user filtering, gate at the network layer or build it into your custom UI.
 - **Push / streaming.** Polling matches our research-team usage. We'll revisit if a real workflow demands it.
 - **Mutation API.** Run lifecycle is owned by `alidade submit` / `stop` / state-file mutations on the NUC. Exposing mutation through this API would create two paths to the same state, and we don't want the consistency story.
