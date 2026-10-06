@@ -45,6 +45,8 @@ export interface Experiment {
    * the home-page Submitter filter buckets those under "unknown".
    */
   submitted_by?: string;
+  /** Healer sessions on the newest submit. Attempts, not confirmed fixes. */
+  healing_attempts?: number;
 }
 
 /** Shape of /api/experiments/{name} — one experiment's header metadata.

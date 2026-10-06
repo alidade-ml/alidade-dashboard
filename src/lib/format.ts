@@ -153,3 +153,12 @@ export function formatSpendCents(cents: number | null | undefined): string {
     maximumFractionDigits: digits,
   })}`;
 }
+
+/**
+ * The CLI's and Slack's wording for a run that healed, or null when it did not.
+ * Worded as attempts: a healer session is not a confirmed fix.
+ */
+export function formatHealingAttempts(attempts: number | null | undefined): string | null {
+  if (attempts == null || !Number.isFinite(attempts) || attempts < 1) return null;
+  return `healing attempted ${attempts}×`;
+}

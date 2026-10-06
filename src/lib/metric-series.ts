@@ -54,3 +54,53 @@ export function mergeSeriesPoints(
   }
   return Array.from(map.values()).sort((a, b) => a.x - b.x);
 }
+
+export interface ChartRunRef {
+  hash: string;
+  name: string;
+  visible: boolean;
+}
+
+export interface ChartHeader {
+  /** "3 runs", or "1 of 3 runs" when some selected runs draw nothing. */
+  count: string;
+  /** Names the selected runs with nothing on this chart, or null when none are known. */
+  absent: string | null;
+}
+
+/**
+ * What a chart's header says about the runs selected for it.
+ *
+ * A run counts once it has a point on `data`, so a run with no series for this
+ * metric, or none placeable on the current axis, is not counted. A run whose
+ * fetch has not answered is neither drawn nor named: it may still arrive.
+ */
+export function chartHeader(
+  metricName: string,
+  runs: ChartRunRef[],
+  data: SeriesPoint[],
+  loaded: Record<string, unknown>,
+  failed: Record<string, unknown>,
+): ChartHeader {
+  const selected = runs.filter((r) => r.visible);
+  const drawn = selected.filter((r) => data.some((p) => typeof p[r.hash] === "number"));
+  const undrawn = selected.filter((r) => !drawn.includes(r));
+  // A failed first fetch stays in `failed` after a later poll answers, so an answer wins.
+  const noData = undrawn.filter((r) => r.hash in loaded);
+  const unloaded = undrawn.filter((r) => r.hash in failed && !(r.hash in loaded));
+
+  const noun = selected.length === 1 ? "run" : "runs";
+  const count =
+    drawn.length === selected.length
+      ? `${selected.length} ${noun}`
+      : `${drawn.length} of ${selected.length} ${noun}`;
+
+  const names = (rs: ChartRunRef[]) => rs.map((r) => r.name).join(", ");
+  const parts = [
+    noData.length > 0 &&
+      `${names(noData)} ${noData.length === 1 ? "has" : "have"} no ${metricName}`,
+    unloaded.length > 0 && `${names(unloaded)} could not be loaded`,
+  ].filter((p): p is string => !!p);
+
+  return { count, absent: parts.length > 0 ? parts.join(" · ") : null };
+}

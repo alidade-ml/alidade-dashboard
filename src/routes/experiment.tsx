@@ -8,7 +8,12 @@ import { isTrainingRun } from "@/lib/types";
 import type { Experiment, MetricSeries, Run } from "@/lib/types";
 import { useChartPalette } from "@/hooks/use-chart-palette";
 import { usePolling } from "@/hooks/use-polling";
-import { formatRelative, formatTimestamp, isActiveState } from "@/lib/format";
+import {
+  formatHealingAttempts,
+  formatRelative,
+  formatTimestamp,
+  isActiveState,
+} from "@/lib/format";
 import { CopyableHash } from "@/components/copyable-hash";
 import { cn } from "@/lib/utils";
 
@@ -488,9 +493,9 @@ function ExperimentBody({
                 </span>
               )}
               {experiment && <StateBadge state={experiment.state} />}
-              {!!experiment?.healing_attempts && (
+              {formatHealingAttempts(experiment?.healing_attempts) && (
                 <span className="text-xs text-muted-foreground font-mono">
-                  healing attempted {experiment.healing_attempts}×
+                  {formatHealingAttempts(experiment?.healing_attempts)}
                 </span>
               )}
               {live && (
