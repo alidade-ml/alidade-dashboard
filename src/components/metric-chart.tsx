@@ -11,7 +11,7 @@ import {
 } from "recharts";
 
 import { api } from "@/lib/api";
-import { mergeSeriesPoints, type SeriesPoint } from "@/lib/metric-series";
+import { chartHeader, mergeSeriesPoints, type SeriesPoint } from "@/lib/metric-series";
 import type { MetricSeries } from "@/lib/types";
 import { useChartZoom, type XAxisMode } from "@/hooks/use-chart-zoom";
 import { cn } from "@/lib/utils";
@@ -153,15 +153,24 @@ export function MetricChart({ metricName, runs, xMode }: MetricChartProps) {
   const visibleRuns = runs.filter((r) => r.visible);
   const totalPoints = data.length;
   const hasData = visibleRuns.length > 0 && totalPoints > 0;
+  const header = chartHeader(metricName, runs, data, seriesByRun, errorByRun);
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-xs text-foreground">{metricName}</span>
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {visibleRuns.length} run{visibleRuns.length === 1 ? "" : "s"} · {totalPoints} pts
+          <span className="font-mono text-[10px] text-muted-foreground whitespace-nowrap">
+            {header.count} · {totalPoints} pts
           </span>
+          {header.absent && (
+            <span
+              className="font-mono text-[10px] text-muted-foreground truncate"
+              title={header.absent}
+            >
+              · {header.absent}
+            </span>
+          )}
         </div>
         {domain && (
           <button

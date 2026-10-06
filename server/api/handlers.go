@@ -137,6 +137,8 @@ type ExperimentSummary struct {
 	// frontend renders this verbatim in the Submitter dropdown; legacy
 	// records (pre-v1.2.1) have it empty and bucket under "unknown".
 	SubmittedBy string `json:"submitted_by,omitempty"`
+	// Healer sessions on the newest submit, not fixes, as on ExperimentDetail.
+	HealingAttempts int `json:"healing_attempts"`
 }
 
 // RunSummary is the item shape of /api/runs.
@@ -307,18 +309,19 @@ func (h *Handler) HandleExperiments(w http.ResponseWriter, r *http.Request) {
 				}
 				seenName[s.Name] = struct{}{}
 				experiments = append(experiments, ExperimentSummary{
-					Name:         s.Name,
-					State:        s.State,
-					GPUType:      s.GPUType,
-					StartedAt:    s.StartedAt,
-					Duration:     stateDuration(s.StartedAt, s.FinishedAt),
-					Outcome:      s.Outcome,
-					RunCount:     runCounts[s.Name],
-					Repo:         s.Repo,
-					LinearDocURL: s.LinearDocURL,
-					VersionCount: len(versionsByName[s.Name]),
-					StateHistory: s.StateHistory,
-					SubmittedBy:  s.SubmittedBy,
+					Name:            s.Name,
+					State:           s.State,
+					GPUType:         s.GPUType,
+					StartedAt:       s.StartedAt,
+					Duration:        stateDuration(s.StartedAt, s.FinishedAt),
+					Outcome:         s.Outcome,
+					RunCount:        runCounts[s.Name],
+					Repo:            s.Repo,
+					LinearDocURL:    s.LinearDocURL,
+					VersionCount:    len(versionsByName[s.Name]),
+					StateHistory:    s.StateHistory,
+					SubmittedBy:     s.SubmittedBy,
+					HealingAttempts: s.HealingAttempts,
 				})
 			}
 		}
@@ -391,15 +394,15 @@ func (h *Handler) HandleExperimentDetail(w http.ResponseWriter, r *http.Request)
 	}
 
 	writeJSON(w, ExperimentDetail{
-		Name:         state.Name,
-		State:        state.State,
-		GPUType:      state.GPUType,
-		StartedAt:    state.StartedAt,
-		Duration:     stateDuration(state.StartedAt, state.FinishedAt),
-		Outcome:      state.Outcome,
-		Repo:         state.Repo,
-		LinearDocURL: state.LinearDocURL,
-		VersionCount: versions,
+		Name:            state.Name,
+		State:           state.State,
+		GPUType:         state.GPUType,
+		StartedAt:       state.StartedAt,
+		Duration:        stateDuration(state.StartedAt, state.FinishedAt),
+		Outcome:         state.Outcome,
+		Repo:            state.Repo,
+		LinearDocURL:    state.LinearDocURL,
+		VersionCount:    versions,
 		StateHistory:    state.StateHistory,
 		SubmittedBy:     state.SubmittedBy,
 		HealingAttempts: state.HealingAttempts,

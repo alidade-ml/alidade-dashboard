@@ -28,7 +28,7 @@ The simplest path. The Go server runs on the NUC at `http://<nuc>:43801` and exp
 
 | Method | Path                               | Returns                                                                                                   |
 | ------ | ---------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/api/experiments`                 | List of all experiments with state, GPU type, run count, version count, submitter                         |
+| `GET`  | `/api/experiments`                 | List of all experiments with state, GPU type, run count, version count, submitter, healing attempts       |
 | `GET`  | `/api/experiments/{name}`          | One experiment's header metadata: state, timing, submitter, version count, state history. Answers from the state DB alone, so it works when Aim is unreachable |
 | `GET`  | `/api/experiments/{name}/runs`     | Detailed runs for one experiment (metrics list + final loss)                                              |
 | `GET`  | `/api/experiments/{name}/includes` | Resolved `--include` directives for an experiment                                                         |
@@ -62,9 +62,12 @@ Path params (`{name}`, `{hash}`) accept anything — metric names commonly conta
   "linear_doc_url": "https://linear.app/...",
   "version_count": 3,
   "state_history": [...],
-  "submitted_by": "alice"
+  "submitted_by": "alice",
+  "healing_attempts": 1
 }
 ```
+
+`healing_attempts` counts the healer sessions on the experiment's newest submit, the number `alidade list` prints as `healing attempted 1×`. It is `0` for a run that never healed. A session is an attempt, not a confirmed fix. `/api/experiments/{name}` carries the same field.
 
 **RunSummary** — items in `/api/runs`:
 
@@ -109,13 +112,17 @@ When present it is **index-aligned with `steps` and the same length**, so a fron
 {
   "aim_run_hash": "82e929fa325e404cac68c078",
   "sample_set": "completions",
-  "kind": "sample",
+  "kind": "text",
   "pairs": [
     { "step": 0, "input_text": "the cat", "output_text": "sat on the mat" },
-    { "step": 1, "output_url": "/api/samples/blob?role=output&run=82e9…&set=completions&step=1" }
+    { "step": 1, "input_text": "once upon", "output_text": "a time there was" }
   ]
 }
 ```
+
+`kind` is `text` or `image`, and it describes the set's **outputs**. It is not the run's `alidade.kind`, which is `sample` for every sample run. `log_samples` refuses a set whose outputs mix text and images, so every output in a batch has the batch's kind.
+
+Input and output may differ in kind: an image-generation set is `"kind": "image"` with `input_text` on each pair, and an image-labelling set is `"kind": "text"` with `input_url`. Read the input's type from each pair's fields, never from `kind`.
 
 Each side of a pair is either text (`input_text` / `output_text`) or an image URL (`input_url` / `output_url`), never both. An absent input is unconditional generation, which is different from an empty-string input.
 

@@ -15,6 +15,7 @@ import type { Experiment, ExperimentState, Run } from "@/lib/types";
 import type { SearchParams } from "@/routes/index";
 import { usePolling } from "@/hooks/use-polling";
 import {
+  formatHealingAttempts,
   formatRelative,
   formatSpendCents,
   formatTimestamp,
@@ -507,7 +508,7 @@ export function ExperimentsList({ onShowHelp }: ExperimentsListProps) {
 
       {/* List */}
       <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="grid grid-cols-[28px_minmax(260px,1fr)_140px_140px_120px_110px_110px_90px] gap-3 border-b border-border bg-surface px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <div className="grid grid-cols-[28px_minmax(260px,1fr)_140px_140px_120px_110px_110px_130px] gap-3 border-b border-border bg-surface px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           <span></span>
           <SortableHeader
             label="Experiment"
@@ -723,6 +724,7 @@ function ExperimentRow({
   ref,
 }: ExperimentRowProps) {
   const live = isActiveState(experiment.state);
+  const healing = formatHealingAttempts(experiment.healing_attempts);
   return (
     <li
       ref={ref}
@@ -734,7 +736,7 @@ function ExperimentRow({
     >
       {selected && <span className="absolute left-0 top-0 h-full w-0.5 bg-primary" />}
       <div
-        className="grid grid-cols-[28px_minmax(260px,1fr)_140px_140px_120px_110px_110px_90px] gap-3 items-center px-3 py-2 cursor-pointer hover:bg-muted/50"
+        className="grid grid-cols-[28px_minmax(260px,1fr)_140px_140px_120px_110px_110px_130px] gap-3 items-center px-3 py-2 cursor-pointer hover:bg-muted/50"
         onClick={onSelect}
         onDoubleClick={onToggle}
       >
@@ -796,8 +798,13 @@ function ExperimentRow({
             runCount={experiment.run_count}
           />
         </span>
-        <span className="text-right">
+        <span className="flex flex-col items-end gap-0.5">
           <OutcomeBadge outcome={experiment.outcome} />
+          {healing && (
+            <span className="text-[10px] text-muted-foreground font-mono whitespace-nowrap">
+              {healing}
+            </span>
+          )}
         </span>
       </div>
       {expanded && <RunsPanel experimentName={experiment.name} />}
