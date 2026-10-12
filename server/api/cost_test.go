@@ -544,15 +544,11 @@ func TestMultipleVersionsOfSameExperiment(t *testing.T) {
 
 // --- Billing window (Lambda-calibrated) ----------------------------------
 
-func TestBillingWindowUsesSetupToTerminalTransition(t *testing.T) {
-	// Reproduces the 06b-rtd-calibration v5 regression: engine-process
-	// elapsed (started_at → finished_at) overcounts because it includes
-	// scheduler queue + Lambda boot + cleanup. Real Lambda charge is
-	// from SETUP transition to first terminal-state transition.
-	//
-	// Setup the SETUP → FAILED window as 4 minutes; the engine-process
-	// window as 7 minutes. At 838c/hr the right answer is $0.56, the
-	// wrong answer would be $0.98.
+func TestBillingWindowRunsFromLaunchToFirstTerminalTransition(t *testing.T) {
+	// started_at is instance launch; the window ends at the first terminal
+	// transition, so cleanup after release (finished_at) is not billed.
+	// 6m23s at 838c/hr is 89c; starting at SETUP would give 55c, ending at
+	// finished_at would give 97c.
 	started := time.Date(2026, 6, 2, 18, 56, 52, 0, time.UTC)
 	setupAt := time.Date(2026, 6, 2, 18, 59, 15, 0, time.UTC)
 	failedAt := time.Date(2026, 6, 2, 19, 3, 15, 0, time.UTC)
@@ -602,10 +598,9 @@ func TestBillingWindowUsesSetupToTerminalTransition(t *testing.T) {
 	if v.Cents == nil {
 		t.Fatal("cents was nil")
 	}
-	// 838 * (240/3600) = 55.86 → truncated to 55 by int conversion.
-	if *v.Cents != 55 && *v.Cents != 56 {
-		t.Fatalf("billing window wrong: got %d cents, want 55-56 (838c/hr × 4min). "+
-			"If you see ~97-98 you're back on started_at→finished_at.", *v.Cents)
+	// 838 * (383/3600) = 89.2
+	if *v.Cents != 89 {
+		t.Fatalf("billing window wrong: got %d cents, want 89 (838c/hr × 6m23s)", *v.Cents)
 	}
 }
 
@@ -640,12 +635,9 @@ func TestBillingWindowFallbackForLegacyRows(t *testing.T) {
 	}
 }
 
-func TestBillingWindowDropsSubmitsThatNeverReachedSetup(t *testing.T) {
-	// A submit that failed during ACQUIRING (Lambda launch failed)
-	// never billed by Lambda. Modern row (has state_transitions) but no
-	// SETUP transition → drop from cost view entirely. Without this,
-	// failed launches would inflate submit/hour counts in the
-	// breakdown.
+func TestBillingWindowCountsASubmitThatNeverReachedSetup(t *testing.T) {
+	// An instance launched and held while waiting for SSH is billed by the
+	// provider even though the run never reaches SETUP.
 	start := time.Now().UTC().AddDate(0, 0, -1)
 	state := makeStateReaderWith(t, func(db *sql.DB) {
 		insertSubmit(t, db, map[string]any{
@@ -680,8 +672,16 @@ func TestBillingWindowDropsSubmitsThatNeverReachedSetup(t *testing.T) {
 	})
 
 	resp := callCost(t, makeCostHandler(t, state), "window=30d")
-	if len(resp.Experiments) != 0 {
-		t.Fatalf("expected 0 experiments (failed-before-SETUP dropped), got %d", len(resp.Experiments))
+	if len(resp.Experiments) != 1 {
+		t.Fatalf("expected the never-SETUP run to be counted, got %d experiments", len(resp.Experiments))
+	}
+	v := resp.Experiments[0].Versions[0]
+	// 1592 * (30/3600) = 13.27
+	if v.Cents == nil || *v.Cents != 13 {
+		t.Fatalf("want 13 cents for 30s at 1592c/hr, got %v", v.Cents)
+	}
+	if resp.TotalCents != 13 {
+		t.Fatalf("total: want 13, got %d", resp.TotalCents)
 	}
 }
 

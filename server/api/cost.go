@@ -188,63 +188,27 @@ func (h *Handler) HandleCost(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// billingWindow derives the compute backend's billing window from a
-// submit's FSM transition history.
-//
-// CALIBRATED FOR LAMBDA. Lambda bills from "instance provisioned and
-// accepting connections" (≈ engine ACQUIRING → SETUP transition, also
-// when the "Compute acquired" Slack message fires) through "terminate
-// confirmed" (≈ first terminal FSM state, since release() fires the
-// terminate API call immediately after). Matches Lambda's actual
-// invoice within sub-cent rounding.
-//
-// For the local backend this window is computed but irrelevant — rate
-// is 0 so cents=0 regardless. If a future backend has different
-// billing semantics (e.g. AWS Spot billing from instance launch, not
-// from ready state) this function is the seam: dispatch on
-// ``s.Backend`` and pick a different transition pair.
-//
-// Falls back to (started_at, finished_at) for legacy rows whose
-// state_transitions table is empty (pre-SQLite imports). Returns a
-// zero start when the submit never reached SETUP — Lambda doesn't
-// bill for launches that failed before becoming ready, so we drop
-// those rows from the cost view.
+// billingWindow is a run's spend window: instance launch through release.
+// The engine rewrites started_at when the instance is acquired, so using it
+// agrees with `alidade cost`. A zero start means no usable timestamp.
 func billingWindow(s ExperimentState) (started, ended time.Time, active bool) {
-	var setupAt, terminalAt time.Time
+	started = parseISO(s.StartedAt)
+	if started.IsZero() {
+		return
+	}
 	for _, t := range s.StateHistory {
-		if setupAt.IsZero() && t.State == "SETUP" {
-			setupAt = parseISO(t.At)
+		switch t.State {
+		case "COMPLETED", "FAILED", "STOPPED":
+			ended = parseISO(t.At)
 		}
-		if terminalAt.IsZero() {
-			switch t.State {
-			case "COMPLETED", "FAILED", "STOPPED":
-				terminalAt = parseISO(t.At)
-			}
+		if !ended.IsZero() {
+			break
 		}
 	}
-	if setupAt.IsZero() {
-		// Two paths:
-		//   - Legacy/imported row with no state_transitions: fall back
-		//     to the submit row's started_at / finished_at. Less
-		//     accurate (includes engine startup + cleanup time) but
-		//     it's all we have.
-		//   - Modern row with transitions but no SETUP: launch failed
-		//     before Lambda was ready, never billed. Return zero
-		//     start so caller drops the row.
-		if len(s.StateHistory) == 0 {
-			started = parseISO(s.StartedAt)
-			ended = parseISO(s.FinishedAt)
-			active = s.FinishedAt == "" || ended.IsZero()
-		}
-		return
+	if ended.IsZero() {
+		ended = parseISO(s.FinishedAt)
 	}
-	started = setupAt
-	if terminalAt.IsZero() {
-		// SETUP reached, no terminal yet — Lambda is actively billing.
-		active = true
-		return
-	}
-	ended = terminalAt
+	active = ended.IsZero()
 	return
 }
 
@@ -262,9 +226,7 @@ func (h *Handler) gatherCostRuns(st *StateReader) ([]costRun, error) {
 	for _, s := range states {
 		started, ended, active := billingWindow(s)
 		if started.IsZero() {
-			// Either no usable timestamps (legacy row with empty
-			// started_at) or the submit never reached SETUP (Lambda
-			// never billed). Drop from the cost view.
+			// No usable started_at.
 			continue
 		}
 
