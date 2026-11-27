@@ -1,11 +1,13 @@
 # Build + publish dashboard release artifacts on tag push.
 #
-# Triggered by `vX.Y.Z` tags. Produces three artifacts attached to the
+# Triggered by `vX.Y.Z` tags. Produces four artifacts attached to the
 # GitHub release:
 #
 #   1. alidade_dashboard-X.Y.Z-py3-none-any.whl  (Python wheel — static bundle)
-#   2. alidade-dashboard-X.Y.Z-linux-amd64.tar.gz (Go binary)
-#   3. SHA256SUMS                                   (sums for the above)
+#   2. alidade-dashboard-X.Y.Z-linux-amd64.tar.gz (Go binary, x86_64 NUCs)
+#   3. alidade-dashboard-X.Y.Z-linux-arm64.tar.gz (Go binary, ARM NUCs and
+#      Linux on Apple Silicon)
+#   4. SHA256SUMS                                   (sums for the above)
 #
 # `alidade admin dashboard install` (in the alidade repo) consumes
 # these to deploy the dashboard onto a NUC without any local build
@@ -83,20 +85,29 @@ jobs:
           bun run build
           test -d dist
 
-      - name: Build Go binary (linux-amd64)
+      - name: Build Go binaries (linux-amd64, linux-arm64)
         working-directory: server
         env:
           GOOS: linux
-          GOARCH: amd64
           CGO_ENABLED: "0"
         run: |
-          go build -ldflags="-s -w" -o ../alidade-dashboard ./cmd
-          # Tarball with deterministic naming so the install command
-          # can compose the URL from version + platform.
-          cd ..
-          BINARY_TAR="alidade-dashboard-${{ steps.ver.outputs.tag }}-linux-amd64.tar.gz"
-          tar czf "${BINARY_TAR}" alidade-dashboard
-          ls -la "${BINARY_TAR}"
+          # Tarballs with deterministic naming so the install command can
+          # compose the URL from version + platform. Each holds one file named
+          # alidade-dashboard, so installing either is the same command.
+          for arch in amd64 arm64; do
+            mkdir -p "../build-${arch}"
+            GOARCH="${arch}" go build -ldflags="-s -w" -o "../build-${arch}/alidade-dashboard" ./cmd
+            tar czf "../alidade-dashboard-${{ steps.ver.outputs.tag }}-linux-${arch}.tar.gz" \
+              -C "../build-${arch}" alidade-dashboard
+          done
+          ls -la ../alidade-dashboard-*.tar.gz
+
+      - name: Each binary is the architecture its name says
+        # The runner is x86_64 and cannot execute the arm64 build, so the
+        # check reads the ELF header instead of running it.
+        run: |
+          file build-amd64/alidade-dashboard | tee /dev/stderr | grep -q "x86-64"
+          file build-arm64/alidade-dashboard | tee /dev/stderr | grep -q "ARM aarch64"
 
       - name: Sync wheel version with tag
         run: |
@@ -118,7 +129,7 @@ jobs:
         run: |
           mkdir -p release-artifacts
           mv dist-py/*.whl release-artifacts/
-          mv alidade-dashboard-${{ steps.ver.outputs.tag }}-linux-amd64.tar.gz release-artifacts/
+          mv alidade-dashboard-${{ steps.ver.outputs.tag }}-linux-*.tar.gz release-artifacts/
           cd release-artifacts
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
